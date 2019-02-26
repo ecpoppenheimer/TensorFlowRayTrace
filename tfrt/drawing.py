@@ -198,17 +198,15 @@ class RayDrawer(object):
             shape = ray_data.shape
         except BaseException:
             raise ValueError(
-                "RayDrawer: Invalid ray_data.  Could not " "retrieve ray_data's shape."
+                "RayDrawer: Invalid ray_data.  Could not retrieve ray_data's shape."
             )
         if len(shape) != 2:
             raise ValueError(
-                "RayDrawer: Invalid ray_data.  Tensor rank must "
-                "be 2, but is rank {}.".format(len(shape))
+                f"RayDrawer: Invalid ray_data.  Tensor rank must be 2, but is rank {len(shape)}."
             )
         if shape[1] < 5:
             raise ValueError(
-                "RayDrawer: Invalid ray_data.  Dim 1 must have "
-                "at least 5 elements, but has {}.".format(shape[1])
+                f"RayDrawer: Invalid ray_data.  Dim 1 must have at least 5 elements, but has {shape[1]}."
             )
 
         # transfer the ray_data into the line collection
@@ -222,7 +220,7 @@ class RayDrawer(object):
             plt.gcf().canvas.draw()
 
     def clear(self):
-        """ Erase all rays drawn by the last call to update(). """
+        """Erase all rays drawn by the last call to update()."""
         self.update(np.zeros((0, 5)))
 
 
@@ -389,18 +387,16 @@ class ArcDrawer(object):
             shape = arc_data.shape
         except BaseException:
             raise ValueError(
-                "ArcDrawer: Invalid arc_data.  Could not " "retrieve arc_data's shape."
+                "ArcDrawer: Invalid arc_data.  Could not retrieve arc_data's shape."
             )
 
         if len(shape) != 2:
             raise ValueError(
-                "ArcDrawer: Invalid arc_data.  Rank must be 2, "
-                "but is rank {}.".format(len(shape))
+                f"ArcDrawer: Invalid arc_data.  Rank must be 2, but is rank {len(shape)}."
             )
         if shape[1] < 5:
             raise ValueError(
-                "ArcDrawer: Invalid arc_data.  Dim 1 must have "
-                "at least 5 elements, but has {}.".format(shape[1])
+                f"ArcDrawer: Invalid arc_data.  Dim 1 must have at least 5 elements, but has {shape[1]}."
             )
 
         # remove the old arc_patches
@@ -471,14 +467,14 @@ class ArcDrawer(object):
             plt.gcf().canvas.draw()
 
     def clear(self):
-        """ Erase all arcs drawn by the last call to update(). """
+        """Erase all arcs drawn by the last call to update()."""
         self.update(np.zeros((0, 5)))
 
     # the next three parts allow to toggle the visibility of arrows that
     # visually depict the norm of the surface
     @property
     def norm_arrow_visibility(self):
-        """ The visibility of the norm arrows. """
+        """The visibility of the norm arrows."""
         return self._norm_arrow_visibility
 
     @norm_arrow_visibility.setter
@@ -498,7 +494,7 @@ class ArcDrawer(object):
             plt.gcf().canvas.draw()
 
     def toggle_norm_arrow_visibility(self):
-        """ Toggle the visibility of the norm arrows. """
+        """Toggle the visibility of the norm arrows."""
         self.norm_arrow_visibility = not self.norm_arrow_visibility
 
 
@@ -656,19 +652,16 @@ class SegmentDrawer(object):
             shape = segment_data.shape
         except BaseException:
             raise ValueError(
-                "SegmentDrawer: Invalid segment_data.  Could "
-                "not retrieve segment_data's shape."
+                "SegmentDrawer: Invalid segment_data.  Could not retrieve segment_data's shape."
             )
 
         if len(shape) != 2:
             raise ValueError(
-                "SegmentDrawer: Invalid segment_data.  Rank "
-                "must be 2, but is rank {}.".format(len(shape))
+                f"SegmentDrawer: Invalid segment_data.  Rank must be 2, but is rank {len(shape)}."
             )
         if shape[1] < 4:
             raise ValueError(
-                "SegmentDrawer: Invalid segment_data.  Dim 1 "
-                "must have at least 4 elements, but has {}.".format(shape[1])
+                f"SegmentDrawer: Invalid segment_data.  Dim 1 must have at least 4 elements, but has {shape[1]}."
             )
 
         # remove the old arrowPatches
@@ -728,14 +721,14 @@ class SegmentDrawer(object):
             plt.gcf().canvas.draw()
 
     def clear(self):
-        """ Erase all segments drawn by the last call to update(). """
+        """Erase all segments drawn by the last call to update()."""
         self.update(np.zeros((0, 4)))
 
     # the next three parts allow to toggle the visibility of arrows that
     # visually depict the norm of the surface
     @property
     def norm_arrow_visibility(self):
-        """ The visibility of the norm arrows. """
+        """The visibility of the norm arrows."""
         return self._norm_arrow_visibility
 
     @norm_arrow_visibility.setter
@@ -755,7 +748,7 @@ class SegmentDrawer(object):
             plt.gcf().canvas.draw()
 
     def toggle_norm_arrow_visibility(self):
-        """ Toggle the visibility of the norm arrows. """
+        """Toggle the visibility of the norm arrows."""
         self.norm_arrow_visibility = not self.norm_arrow_visibility
 
 
@@ -763,7 +756,7 @@ class SegmentDrawer(object):
 
 
 def disable_figure_key_commands():
-    """ Disable all keyboard shortcuts in the mpl figure. """
+    """Disable all keyboard shortcuts in the mpl figure."""
     for key, value in plt.rcParams.items():
         if "keymap" in key:
             plt.rcParams[key] = ""

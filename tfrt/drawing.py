@@ -383,6 +383,24 @@ class ArcDrawer:
                 )
             )
 
+    @property
+    def color(self):
+        return self._color
+
+    @color.setter
+    def color(self, color):
+        self._color = color
+        self._maybe_draw_canvas()
+
+    @property
+    def style(self):
+        return self._style
+
+    @style.setter
+    def style(self, style):
+        self._style = style
+        self._maybe_draw_canvas()
+
     # the next three parts allow to toggle the visibility of arrows that
     # visually depict the norm of the surface
     @property

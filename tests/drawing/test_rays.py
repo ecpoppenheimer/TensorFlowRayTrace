@@ -5,12 +5,8 @@ import matplotlib.pyplot as plt
 import tfrt
 
 
-@pytest.fixture(scope="function")
-def ax():
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    yield ax
-    plt.close(fig)
+def test_can_construct_ray_drawer_with_no_rays(ax):
+    tfrt.drawing.RayDrawer(ax)
 
 
 @pytest.mark.parametrize("units", ["um", "nm"])

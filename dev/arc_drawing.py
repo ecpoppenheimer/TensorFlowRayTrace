@@ -8,7 +8,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 import tfrt.TFRayTrace as tfrt
-import tfrt.drawing as rtdraw
+import tfrt.drawing as drawing
 import tfrt.OpticsUtilities as outl
 
 PI = math.pi
@@ -19,7 +19,7 @@ COLORS = itertools.cycle(
 STYLES = itertools.cycle(["-", "--", "-.", ":"])
 
 
-def get_random_arcs(count):
+def get_random_arcs(count=10):
     centers = np.random.uniform(-1.0, 1.0, (count, 2))
     angles = np.random.uniform(0, 2 * PI, (count, 2))
     radii = np.random.uniform(-1.0, 1.0, (count, 1))
@@ -32,7 +32,7 @@ def on_key(event, drawer):
     # Message loop called whenever a key is pressed on the figure
 
     if event.key == "t":
-        drawer.arcs = get_random_arcs(10)
+        drawer.arcs = get_random_arcs()
     elif event.key == "c":
         drawer.arcs = None
     elif event.key == "n":
@@ -53,7 +53,6 @@ def on_key(event, drawer):
 if __name__ == "__main__":
     # set up the figure and axes
     fig, ax = plt.subplots(1, 1, figsize=(15, 9))
-    # plt.show(block=False)
 
     # configure axes
     ax.set_aspect("equal")
@@ -61,9 +60,9 @@ if __name__ == "__main__":
     ax.set_ybound(-2, 2)
 
     # set up drawer
-    drawer = rtdraw.ArcDrawer(
+    drawer = drawing.ArcDrawer(
         ax,
-        arcs=get_random_arcs(10),
+        arcs=get_random_arcs(),
         color=next(COLORS),
         style=next(STYLES),
         draw_norm_arrows=True,

@@ -45,15 +45,9 @@ PURPLE = 0.4
 
 RAINBOW_6 = [RED, ORANGE, YELLOW, GREEN, BLUE, PURPLE]
 
+UNIT_TO_NUMBER = {"nm": 1000, "um": 1}
+
 # ----------------------------------------------------------------------------
-
-"""
-TODO:
-
-1) Should I define a mechanism for allowing the user to set new min/max wavelength?  User can already do it by calling
-something like "RayDrawer.line_collection.norm = plt.Normalize(min, max)".  This flexibility (and other like it is why
-I am leaving rayDrawer.line_collection as a public member.
-"""
 
 
 class RayDrawer:
@@ -63,68 +57,47 @@ class RayDrawer:
     This class makes it easy to draw a set of rays to a
     matplotlib.axes.Axes.  By default this class will use the spectrumRGB
     colormap to color the rays by wavelength, but a different colormap
-    can be chosen if desired.  If you desire to change the display
-    properties on the fly, you can get access to the underlying
-    mpl.collections.LineCollection used to actually plot the rays via
-    the attribute RayDrawer.line_collection, though for most use cases
-    this class should handle everything for you.
-
-    Attributes
-    ----------
-
-    auto_redraw_canvas : bool
-        If true, the class will automatically redraw the mpl figure after
-        an update operation is performed.  Otherwise you will have to
-        manually redraw.  Default behavior is for this attribute to be
-        false, as there is no reason to redraw the canvas if multiple
-        drawing operations will need to be executed at once, and the user
-        will better know when to redraw the canvas, but this functionality
-        is added as a convenience if desired.
-    line_collection : mpl.collections.LineCollection
-        The line collection internally used to draw the rays.  This
-        attribute is exposed to the public API in case the user wants
-        more control over the drawing, but for most use cases this
-        attribute won't need to be touched.
-
-    Methods
-    -------
-
-    update(array_like)
-        Draw the rays fed to this function.
-    clear()
-        Erase all rays controlled by this class instance.
-
+    can be chosen if desired.
     """
 
     def __init__(
         self,
         ax,
+        rays=None,
         min_wavelength=VISIBLE_MIN,
         max_wavelength=VISIBLE_MAX,
+        units="um",
         style="-",
         colormap=mpl.colors.ListedColormap(rgb()),
         auto_redraw_canvas=False,
-        units="um",
     ):
         """
-        Build the ray drawer, but do not feed it rays to draw.
-
-        The constructor packages various style and behavior options
-        and sets up a system for drawing rays, but does not itself
-        accept any rays or draw anything.  Use method update() to
-        actually draw rays.
-
         Parameters
         ----------
         ax : matplotlib.axes.Axes
             A handle to the mpl axis into which the rays will be
             drawn.
-        minimum_wavelength : float, optional
+        rays : np.ndarray
+            An array that encodes information about the rays to be drawn,
+            formatted like the raysets used by tfrt.raytrace.  Must be
+            rank 2.  The first dimension indexes rays.  The second
+            dimension must have length == 5, whose five elements are
+            [start_x, start_y, end_x, end_y, wavelength].
+        min_wavelength : float, optional
             The minimum wavelength, used only to normalize the
             colormap.
-        maximum_wavelength : float, optional
+        max_wavelength : float, optional
             The maximum wavelength, used only to normalize the
             colormap.
+        units : string, optional
+            The units of wavelength.  Default is 'um', micrometers, but
+            can also accept 'nm', nanometers.  Used to adjust the
+            wavelength, for compatability with the spectrumRGB colormap,
+            which uses nm.  If you want to use a different colormap,
+            set the units to nm which causes RayDrawer to do wavelength
+            as is to the colormap.  If um is selected, RayDrawer will
+            multiply wavelength by 1000 to convert into nm before passing
+            wavelength to the colormap.
         style : string, optional
             The linestyle used to draw the rays.  Defaults to a solid
             line.  See matplotlib.lines.Line2D linestyle options for
@@ -136,90 +109,83 @@ class RayDrawer:
             If true, redraws the MPL figure after updating.  If
             false, does not, and you have to call the canvas redraw
             yourself to see the effect of updating the drawer.
-        units : string, optional
-            The units of wavelength.  Default is 'um', micrometers, but
-            can also accept 'nm', nanometers.  Used to adjust the
-            wavelength, for compatability with the spectrumRGB colormap,
-            which uses nm.  If you want to use a different colormap,
-            set the units to nm which causes RayDrawer to do wavelength
-            as is to the colormap.  If um is selected, RayDrawer will
-            multiply wavelength by 1000 to convert into nm before passing
-            wavelength to the colormap.
-
         """
+        self.rays = rays
 
-        # Initialize class variables.
-        self.auto_redraw_canvas = auto_redraw_canvas
-
-        if units == "um":
-            self._wavelength_unit_factor = 1000.0
-        elif units == "nm":
-            self._wavelength_unit_factor = 1.0
-        else:
+        try:
+            self._wavelength_unit_factor = UNIT_TO_NUMBER[units]
+        except KeyError as e:
             raise ValueError(
                 f"RayDrawer: Invalid units: {units}.  Allowed values are 'um', 'nm'."
-            )
-
-        # Build the line collection and add it to the axes.
-        self.line_collection = mpl.collections.LineCollection(
-            [],
-            linestyles=style,
-            cmap=colormap,
-            norm=plt.Normalize(
-                self._wavelength_unit_factor * min_wavelength,
-                self._wavelength_unit_factor * max_wavelength,
-            ),
-        )
-        ax.add_collection(self.line_collection)
-
-    def update(self, ray_data):
-        """
-        Feed ray data and draw the rays
-
-        Any previously drawn rays will be discarded when this method is
-        called to add new rays.  The LineCollection will be updated, but
-        the canvas will only be redrawn by this method if
-        auto_redraw_canvas is true.
-
-        Parameters
-        ----------
-        ray_data : np.ndarray
-            An array that encodes information about the rays to be drawn,
-            formatted like the raysets used by tfrt.raytrace.  Must be
-            rank 2.  The first dimension indexes rays.  The second
-            dimension must have length == 5, whose five elements are
-            [xStart, yStart, xEnd, yEnd, wavelength].
-
-        """
-        # validate ray_data's shape
-        try:
-            shape = ray_data.shape
-        except AttributeError as e:
-            raise AttributeError(
-                "RayDrawer: Invalid ray_data.  Could not retrieve ray_data's shape."
             ) from e
-        if len(shape) != 2:
-            raise ValueError(
-                f"RayDrawer: Invalid ray_data.  Tensor rank must be 2, but is rank {len(shape)}."
-            )
-        if shape[1] != 5:
-            raise ValueError(
-                f"RayDrawer: Invalid ray_data.  Dim 1 must have exactly 5 elements, but has {shape[1]}."
-            )
 
-        # transfer the ray_data into the line collection
-        self.line_collection.set_segments(
-            [[(each[0], each[1]), (each[2], each[3])] for each in ray_data]
+        self._line_collection = mpl.collections.LineCollection(
+            [], linestyles=style, cmap=colormap
         )
-        self.line_collection.set_array(self._wavelength_unit_factor * ray_data[:, 4])
+        self.set_wavelength_limits(min_wavelength, max_wavelength)
+        ax.add_collection(self._line_collection)
 
-        # redraw the canvas
+        self.auto_redraw_canvas = auto_redraw_canvas
+
+    @property
+    def rays(self):
+        return self._rays
+
+    @rays.setter
+    def rays(self, rays):
+        if rays is None:
+            self._rays = np.zeros((0, 5))
+        else:
+            try:
+                shape = rays.shape
+            except AttributeError as e:
+                raise AttributeError(
+                    "RayDrawer: Invalid ray_data.  Could not retrieve ray_data's shape."
+                ) from e
+            if len(shape) != 2:
+                raise ValueError(
+                    f"RayDrawer: Invalid ray_data.  Tensor rank must be 2, but is rank {len(shape)}."
+                )
+            if shape[1] != 5:
+                raise ValueError(
+                    f"RayDrawer: Invalid ray_data.  Dim 1 must have exactly 5 elements, but has {shape[1]}."
+                )
+
+            self._rays = rays
+
+    def draw(self):
+        self._line_collection.set_segments(
+            [[(ray[0], ray[1]), (ray[2], ray[3])] for ray in self.rays]
+        )
+        self._line_collection.set_array(self._wavelength_unit_factor * self.rays[:, 4])
+
+        self._maybe_draw_canvas()
+
+    def _maybe_draw_canvas(self):
         if self.auto_redraw_canvas:
-            plt.gcf().canvas.draw()
+            self.ax.get_figure().canvas.draw()
 
-    def clear(self):
-        """Erase all rays drawn by the last call to update()."""
-        self.update(np.zeros((0, 5)))
+    @property
+    def colormap(self):
+        return self._line_collection.cmap
+
+    @colormap.setter
+    def colormap(self, colormap):
+        self._line_collection.cmap = colormap
+
+    @property
+    def style(self):
+        return self._line_collection.get_linestyle()[0]
+
+    @style.setter
+    def style(self, style):
+        self._line_collection.set_linestyle(style)
+
+    def set_wavelength_limits(self, min, max):
+        """Change the minimum and maximum wavelengths for the colormap normalization."""
+        self._line_collection.norm = plt.Normalize(
+            self._wavelength_unit_factor * min, self._wavelength_unit_factor * max
+        )
 
 
 # ----------------------------------------------------------------------------
@@ -244,7 +210,7 @@ class ArcDrawer:
     One notable restriction to this class is that all of the arcs drawn
     must have the same color and style.  If you want differently styled
     optical surfaces in your visualization, use multiple ArcDrawer
-    instances.  Attributes like ``arc_data``, ``color``, and ``style``
+    instances.  Attributes like ``arcs``, ``color``, and ``style``
     can be changed after instantiation, but you will need to call
     draw afterward to see the change.
 
@@ -281,9 +247,8 @@ class ArcDrawer:
         arcs : np.ndarray
             An array that encodes information about the arcs to be drawn.
             Must be rank 2.  The first dimension indexes arcs.  The
-            second dimension must have shape == 5, whose first five
-            elements are [xcenter, ycenter, angle_start, angle_end,
-            radius].
+            second dimension must have shape == 5, elements are
+            [center_x, center_y, angle_start, angle_end, radius].
         color : color_like, optional
             The color of all arcs and norm arrows drawn.  See
             https://matplotlib.org/api/colors_api.html for acceptable
@@ -311,7 +276,6 @@ class ArcDrawer:
         self.ax = ax
         self.color = color
         self.style = style
-        self.auto_redraw_canvas = auto_redraw_canvas
 
         self.arcs = arcs
 
@@ -324,6 +288,8 @@ class ArcDrawer:
             self.arrow_length = norm_arrow_length
             self.arrow_count = norm_arrow_count
 
+        self.auto_redraw_canvas = auto_redraw_canvas
+
     @property
     def arcs(self):
         return self._arcs
@@ -331,7 +297,7 @@ class ArcDrawer:
     @arcs.setter
     def arcs(self, arcs):
         if arcs is None:
-            self._arcs = []
+            self._arcs = np.zeros((0, 5))
         else:
             try:
                 shape = arcs.shape
@@ -353,18 +319,18 @@ class ArcDrawer:
 
     def draw(self):
         # remove the old arc_patches
-        for each in self._arc_patches:
-            each.remove()
+        for arc_patch in self._arc_patches:
+            arc_patch.remove()
         self._arc_patches = []
 
         # remove the old arrow_patches
-        for each in self._norm_arrows:
-            each.remove()
+        for norm_arrow in self._norm_arrows:
+            norm_arrow.remove()
         self._norm_arrows = []
 
         # draw the new patches
-        for each in self._arcs:
-            self._draw_arc(*each)
+        for arc in self._arcs:
+            self._draw_arc(*arc)
 
         self._maybe_draw_canvas()
 
@@ -452,14 +418,6 @@ class ArcDrawer:
         self._maybe_draw_canvas()
 
 
-# ----------------------------------------------------------------------------
-
-"""
-TODO
-So in this one, if I change the color of the line_collection at runtime, it updates the colors of the lines on a canvas redraw, and does not need a SegmentDrawer.update(), unlike the case with ArcDrawer.  But it does not update the color of the norm arrows.  I understand why this happens.  Question is, is this behavior important enough (and abberrant/inconsistent enough) that I need to deal with getter/setters for these kinds of properties.
-"""
-
-
 class SegmentDrawer:
     """
     Class for drawing a set of optical line segment surfaces.
@@ -467,11 +425,9 @@ class SegmentDrawer:
     This class makes it easy to draw a set of line segments formatted like
     the optical surfaces used by tfrt.raytrace to a matplotlib.axes.Axes.
     All of the lines drawn by a SegmentDrawer instance should have the
-    same color and style.  The underlying mpl.collections.LineCollection
-    is exposed to the public API of this class, so it is actually possible
-    to set the color of individual segments, but this behavior isn't
-    recommended.  If you want differently styled optical surfaces
-    in your visualization, use multiple SegmentDrawer instances.
+    same color and style.  Attributes like ``segments``, ``color``, and ``style``
+    can be changed after instantiation, but you will need to call
+    draw afterward to see the change.
 
     When designing an optical system with refractive surfaces, it is very
     important to understand which direction the surface normal points, so
@@ -483,66 +439,30 @@ class SegmentDrawer:
     the norm arrows, turning them on when I want to inspect a surface to
     ensure that it is correctly oriented, and then turning them off after
     ensuring the surface is correctly oriented to unclutter the display.
-
-    Attributes
-    ----------
-    ax : matplotlib.axes.Axes
-        A handle to the mpl axis into which the arcs will be drawn.
-    auto_redraw_canvas : bool
-        If true, the class will automatically redraw the mpl figure after
-        an update operation is performed.  Otherwise you will have to
-        manually redraw.  Default behavior is for this attribute to be
-        false, as there is no reason to redraw the canvas if multiple
-        drawing operations will need to be executed at once, and the user
-        will better know when to redraw the canvas, but this functionality
-        is added as a convenience if desired.
-    line_collection : mpl.collections.LineCollection
-        The line collection internally used to draw the line segments.
-        This attribute is exposed to the public API in case the user wants
-        more control over the drawing, but for most use cases this
-        attribute won't need to be touched.
-    include_norm_arrows : bool
-        If True, will include norm arrows with the surface when updating.
-        If changed, will not have an effect until the next call to
-        update().
-    arrow_length : float
-        The length (in ax coords) of the norm arrows.  If changed, will
-        not have an effect until the next call to update().
-
-    Methods
-    -------
-    update(array_like)
-        Draw the segments fed to this function.
-    clear()
-        Erase all segments controlled by this class instance.
-    toggle_norm_arrow_visibility()
-        Toggles display of the norm arrows.
-
     """
 
     def __init__(
         self,
         ax,
-        color=(0, 1, 1),
+        segments=None,
+        color="black",
         style="-",
-        include_norm_arrows=False,
-        auto_redraw_canvas=False,
+        draw_norm_arrows=False,
         norm_arrow_visibility=True,
         arrow_length=0.05,
+        auto_redraw_canvas=False,
     ):
         """
-        Build the segment drawer, but do not feed it segments to draw.
-
-        The constructor packages various style and behavior options
-        and sets up a system for drawing segments, but does not itself
-        accept any segments or draw anything.  Use method update() to
-        actually draw segments.
-
         Parameters
         ----------
         ax : matplotlib.axes.Axes
             A handle to the mpl axis into which the segments will be
             drawn.
+        segments : np.ndarray
+            An array that encodes information about the segments to be
+            drawn.  Must be rank 2.  The first dimension indexes segments.
+            The second dimension must have length == 4, whose elements are
+            [start_x, stary_y, end_x, end_y].
         color : color_like, optional
             The color of all segments and norm arrows drawn.  See
             https://matplotlib.org/api/colors_api.html for acceptable
@@ -551,128 +471,121 @@ class SegmentDrawer:
             The linestyle used to draw the segments.  Defaults to a solid
             line.  See matplotlib.lines.Line2D linestyle options for
             a list of the valid values.
-        include_norm_arrows : bool, optional
+        draw_norm_arrows : bool, optional
             If true, add an arrow at the midpoint of the segment that
             depicts the direction of the surface norm, for visualizing the
             surface orientation.
-        auto_redraw_canvas : bool, optional
-            If true, redraws the MPL figure after updating.  If
-            false, does not, and you have to call the canvas redraw
-            yourself to see the effect of updating the drawer.
         norm_arrow_visibility : bool, optional
             The initial state of the norm arrow visibility.  Defaults to
             true, so the norm arrows start visible.
         arrow_length : float, optional
             The length (in ax coords) of the norm arrows.
-
+        auto_redraw_canvas : bool, optional
+            If true, redraws the MPL figure after updating.  If
+            false, does not, and you have to call the canvas redraw
+            yourself to see the effect of updating the drawer.
         """
 
         self.ax = ax
-        self.auto_redraw_canvas = auto_redraw_canvas
 
-        self.include_norm_arrows = include_norm_arrows
+        self.segments = segments
+
+        self.include_norm_arrows = draw_norm_arrows
         self._norm_arrows = []
         if self.include_norm_arrows:
             self._norm_arrow_visibility = norm_arrow_visibility
             self.arrow_length = arrow_length
 
         # Build the line collection, and add it to the axes
-        self.line_collection = mpl.collections.LineCollection(
+        self._line_collection = mpl.collections.LineCollection(
             [], colors=color, linestyles=style
         )
-        self.ax.add_collection(self.line_collection)
+        self.ax.add_collection(self._line_collection)
 
-    def update(self, segment_data):
-        """
-        Feed segment data and draw the segments
+        self.auto_redraw_canvas = auto_redraw_canvas
 
-        Any previously drawn segments will be discarded when this method
-        is called to add new ones.  Segments will be added to the axis,
-        but the canvas will only be redrawn by this method if
-        auto_redraw_canvas is true.
+    @property
+    def segments(self):
+        return self._segments
 
-        Parameters
-        ----------
-        segment_data : np.ndarray
-            An array that encodes information about the segments to be
-            drawn.  Must be rank 2.  The first dimension indexes segments.
-            The second dimension must have length == 4, whose four
-            elements are [xstart, ystart, xend, yend].
+    @segments.setter
+    def segments(self, segments):
+        if segments is None:
+            self._segments = np.zeros((0, 4))
+        else:
+            try:
+                shape = segments.shape
+            except AttributeError as e:
+                raise AttributeError(
+                    "SegmentDrawer: Invalid segment_data.  Could not retrieve segment_data's shape."
+                ) from e
 
-        """
+            if len(shape) != 2:
+                raise ValueError(
+                    f"SegmentDrawer: Invalid segment_data.  Rank must be 2, but is rank {len(shape)}."
+                )
+            if shape[1] != 4:
+                raise ValueError(
+                    f"SegmentDrawer: Invalid segment_data.  Dim 1 must have 4 elements, but has {shape[1]}."
+                )
 
-        # validate the segment_data shape
-        try:
-            shape = segment_data.shape
-        except AttributeError as e:
-            raise AttributeError(
-                "SegmentDrawer: Invalid segment_data.  Could not retrieve segment_data's shape."
-            ) from e
+            self._segments = segments
 
-        if len(shape) != 2:
-            raise ValueError(
-                f"SegmentDrawer: Invalid segment_data.  Rank must be 2, but is rank {len(shape)}."
-            )
-        if shape[1] == 4:
-            raise ValueError(
-                f"SegmentDrawer: Invalid segment_data.  Dim 1 must have 4 elements, but has {shape[1]}."
-            )
-
+    def draw(self):
         # remove the old arrowPatches
         for norm_arrow in self._norm_arrows:
             norm_arrow.remove()
         self._norm_arrows = []
 
-        """
-        TODO
-        So I am extracting the color of the first line in the line collection
-        and using that to color all of the norm arrows.  I could probably build
-        the segments in one step, then extract the colors of all lines and
-        use that to color the norm arrows.  But this will only ever matter
-        if the user directly accesses the line_collection and uses a colormap
-        to set the line colors, which is an odd use case.  Not sure what is
-        worth doing here.
-        """
-        line_color = self.line_collection.get_colors()[0, :-1]
-
-        segments = []
+        arrow_color = self._line_collection.get_colors()[0]
 
         # compose the new line collection
-        for each in segment_data:
-            xstart = each[0]
-            ystart = each[1]
-            xend = each[2]
-            yend = each[3]
-            theta = np.arctan2(yend - ystart, xend - xstart) + PI / 2.0
+        segments = []
+        for start_x, start_y, end_x, end_y in self.segments:
+            theta = np.arctan2(end_y - start_y, end_x - start_x) + PI / 2.0
 
             # build the collections segments
-            segments.append([(xstart, ystart), (xend, yend)])
+            segments.append([(start_x, start_y), (end_x, end_y)])
 
             if self.include_norm_arrows:
                 # add the norm arrows
                 self._norm_arrows.append(
                     self.ax.add_patch(
                         mpl.patches.Arrow(
-                            (xstart + xend) / 2.0,
-                            (ystart + yend) / 2.0,
+                            (start_x + end_x) / 2.0,
+                            (start_y + end_y) / 2.0,
                             self.arrow_length * math.cos(theta),
                             self.arrow_length * math.sin(theta),
                             width=0.4 * self.arrow_length,
-                            color=line_color,
+                            color=arrow_color,
                             visible=self._norm_arrow_visibility,
                         )
                     )
                 )
 
-        self.line_collection.set_segments(segments)
+        self._line_collection.set_segments(segments)
 
-        # redraw the canvas
+        self._maybe_draw_canvas()
+
+    def _maybe_draw_canvas(self):
         if self.auto_redraw_canvas:
-            plt.gcf().canvas.draw()
+            self.ax.get_figure().canvas.draw()
 
-    def clear(self):
-        """Erase all segments drawn by the last call to update()."""
-        self.update(np.zeros((0, 4)))
+    @property
+    def color(self):
+        return self._line_collection.get_color()[0]
+
+    @color.setter
+    def color(self, color):
+        self._line_collection.set_color(color)
+
+    @property
+    def style(self):
+        return self._line_collection.get_linestyle()[0]
+
+    @style.setter
+    def style(self, style):
+        self._line_collection.set_linestyle(style)
 
     # the next three parts allow to toggle the visibility of arrows that
     # visually depict the norm of the surface
@@ -690,9 +603,7 @@ class SegmentDrawer:
         for arrow in self._norm_arrows:
             arrow.set_visible(self._norm_arrow_visibility)
 
-        # redraw the canvas
-        if self.auto_redraw_canvas:
-            plt.gcf().canvas.draw()
+        self._maybe_draw_canvas()
 
     def toggle_norm_arrow_visibility(self):
         """Toggle the visibility of the norm arrows."""

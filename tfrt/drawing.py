@@ -235,7 +235,7 @@ during runtime.  Should this one be private?
 """
 
 
-class ArcDrawer(object):
+class ArcDrawer:
     """
     Class for drawing a set of optical arc surfaces.
 
@@ -355,9 +355,13 @@ class ArcDrawer(object):
         self.style = style
         self.auto_redraw_canvas = auto_redraw_canvas
 
+        self._arc_data = None
+
+        self._arc_patches = []
+        self._norm_arrows = []
+
         self.include_norm_arrows = include_norm_arrows
         self._norm_arrow_visibility = norm_arrow_visibility
-        self._norm_arrows = []
         if self.include_norm_arrows:
             self.arrow_length = arrow_length
             self.arrow_count = arrow_count
@@ -381,7 +385,6 @@ class ArcDrawer(object):
             radius].  Any additional elements are ignored.
 
         """
-        # validate arc_data's shape
         try:
             shape = arc_data.shape
         except BaseException:
@@ -398,6 +401,9 @@ class ArcDrawer(object):
                 f"ArcDrawer: Invalid arc_data.  Dim 1 must have at least 5 elements, but has {shape[1]}."
             )
 
+        self._arc_data = arc_data
+
+    def draw(self):
         # remove the old arc_patches
         for each in self._arc_patches:
             each.remove()
@@ -409,54 +415,54 @@ class ArcDrawer(object):
         self._norm_arrows = []
 
         # draw the new patches
-        for each in arc_data:
-            xcenter = each[0]
-            ycenter = each[1]
-            angle_start = each[2]
-            angle_end = each[3]
-            radius = each[4]
-
-            # add the arc patch
-            self._arc_patches.append(
-                self.ax.add_patch(
-                    mpl.patches.Arc(
-                        (xcenter, ycenter),
-                        abs(2 * radius),
-                        abs(2 * radius),
-                        theta1=math.degrees(angle_start),
-                        theta2=math.degrees(angle_end),
-                        color=self.color,
-                        linestyle=self.style,
-                    )
-                )
-            )
-
-            if self.include_norm_arrows:
-                # add the norm arrows
-                if angle_start < angle_end:
-                    angles = np.linspace(angle_start, angle_end, self.arrow_count)
-                else:
-                    angles = np.linspace(
-                        angle_start, angle_end + 2 * PI, self.arrow_count
-                    )
-                for theta in angles:
-                    self._norm_arrows.append(
-                        self.ax.add_patch(
-                            mpl.patches.Arrow(
-                                xcenter + abs(radius) * math.cos(theta),
-                                ycenter + abs(radius) * math.sin(theta),
-                                self.arrow_length * math.cos(theta) * np.sign(radius),
-                                self.arrow_length * math.sin(theta) * np.sign(radius),
-                                width=0.4 * self.arrow_length,
-                                color=self.color,
-                                visible=self._norm_arrow_visibility,
-                            )
-                        )
-                    )
+        for each in self._arc_data:
+            self._draw_arc(*each)
 
         # redraw the canvas
         if self.auto_redraw_canvas:
             plt.gcf().canvas.draw()
+
+    def _draw_arc(self, center_x, center_y, angle_start, angle_end, radius):
+        self._arc_patches.append(
+            self.ax.add_patch(
+                mpl.patches.Arc(
+                    (center_x, center_y),
+                    abs(2 * radius),
+                    abs(2 * radius),
+                    theta1=math.degrees(angle_start),
+                    theta2=math.degrees(angle_end),
+                    color=self.color,
+                    linestyle=self.style,
+                )
+            )
+        )
+
+        if self.include_norm_arrows:
+            self._draw_norm_arrows_for_arc(
+                center_x, center_y, angle_start, angle_end, radius
+            )
+
+    def _draw_norm_arrows_for_arc(
+        self, center_x, center_y, angle_start, angle_end, radius
+    ):
+        if angle_start < angle_end:
+            angles = np.linspace(angle_start, angle_end, self.arrow_count)
+        else:
+            angles = np.linspace(angle_start, angle_end + 2 * PI, self.arrow_count)
+        for theta in angles:
+            self._norm_arrows.append(
+                self.ax.add_patch(
+                    mpl.patches.Arrow(
+                        center_x + abs(radius) * math.cos(theta),
+                        center_y + abs(radius) * math.sin(theta),
+                        self.arrow_length * math.cos(theta) * np.sign(radius),
+                        self.arrow_length * math.sin(theta) * np.sign(radius),
+                        width=0.4 * self.arrow_length,
+                        color=self.color,
+                        visible=self._norm_arrow_visibility,
+                    )
+                )
+            )
 
     def clear(self):
         """Erase all arcs drawn by the last call to update()."""
@@ -472,7 +478,7 @@ class ArcDrawer(object):
     @norm_arrow_visibility.setter
     def norm_arrow_visibility(self, val):
         if not isinstance(val, bool):
-            raise TypeError("visibility must be bool")
+            raise TypeError("norm_arrow_visibility must be bool")
         self._norm_arrow_visibility = val
 
         for arrow in self._norm_arrows:
@@ -486,6 +492,16 @@ class ArcDrawer(object):
         """Toggle the visibility of the norm arrows."""
         self.norm_arrow_visibility = not self.norm_arrow_visibility
 
+    @property
+    def arrow_count(self):
+        return self._arrow_count
+
+    @arrow_count.setter
+    def arrow_count(self, count):
+        if count < 0:
+            count = 0
+        self._arrow_count = count
+
 
 # ----------------------------------------------------------------------------
 
@@ -495,7 +511,7 @@ So in this one, if I change the color of the line_collection at runtime, it upda
 """
 
 
-class SegmentDrawer(object):
+class SegmentDrawer:
     """
     Class for drawing a set of optical line segment surfaces.
 

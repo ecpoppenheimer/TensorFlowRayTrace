@@ -172,6 +172,7 @@ class RayDrawer:
     @colormap.setter
     def colormap(self, colormap):
         self._line_collection.cmap = colormap
+        self._maybe_draw_canvas()
 
     @property
     def style(self):
@@ -180,12 +181,14 @@ class RayDrawer:
     @style.setter
     def style(self, style):
         self._line_collection.set_linestyle(style)
+        self._maybe_draw_canvas()
 
     def set_wavelength_limits(self, min, max):
         """Change the minimum and maximum wavelengths for the colormap normalization."""
         self._line_collection.norm = plt.Normalize(
             self._wavelength_unit_factor * min, self._wavelength_unit_factor * max
         )
+        self._maybe_draw_canvas()
 
 
 # ----------------------------------------------------------------------------
@@ -578,6 +581,7 @@ class SegmentDrawer:
     @color.setter
     def color(self, color):
         self._line_collection.set_color(color)
+        self._maybe_draw_canvas()
 
     @property
     def style(self):
@@ -586,6 +590,7 @@ class SegmentDrawer:
     @style.setter
     def style(self, style):
         self._line_collection.set_linestyle(style)
+        self._maybe_draw_canvas()
 
     # the next three parts allow to toggle the visibility of arrows that
     # visually depict the norm of the surface

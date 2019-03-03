@@ -244,8 +244,9 @@ class ArcDrawer:
     One notable restriction to this class is that all of the arcs drawn
     must have the same color and style.  If you want differently styled
     optical surfaces in your visualization, use multiple ArcDrawer
-    instances.  Color and style can be changed after instantiation, but
-    you will need to call update afterward to see the change.
+    instances.  Attributes like ``arc_data``, ``color``, and ``style``
+    can be changed after instantiation, but you will need to call
+    draw afterward to see the change.
 
     When designing an optical system with refractive surfaces, it is very
     important to understand which direction the surface normal points, so
@@ -257,73 +258,32 @@ class ArcDrawer:
     turning them on when I want to inspect a surface to ensure that it is
     correctly oriented, and then turning them off after ensuring the
     surface is correctly oriented to unclutter the display.
-
-    Attributes
-    ----------
-    ax : matplotlib.axes.Axes
-        A handle to the mpl axis into which the arcs will be drawn.
-    color : color_like
-        The color of all arcs and norm arrows drawn.  See
-        https://matplotlib.org/api/colors_api.html for acceptable
-        color formats.
-    style : string
-        The linestyle used to draw the rays.  Defaults to a solid
-        line.  See matplotlib.lines.Line2D linestyle options for
-        a list of the valid values.
-    auto_redraw_canvas : bool
-        If true, the class will automatically redraw the mpl figure after
-        an update operation is performed.  Otherwise you will have to
-        manually redraw.  Default behavior is for this attribute to be
-        false, as there is no reason to redraw the canvas if multiple
-        drawing operations will need to be executed at once, and the user
-        will better know when to redraw the canvas, but this functionality
-        is added as a convenience if desired.
-    include_norm_arrows : bool
-        If True, will include norm arrows with the surface when updating.
-        If changed, will not have an effect until the next call to
-        update().
-    arrow_length : float
-        The length (in ax coords) of the norm arrows.  If changed, will
-        not have an effect until the next call to update().
-    arrow_count : int
-        How many norm arrows to draw along the surface.  If changed, will
-        not have an effect until the next call to update().
-
-    Methods
-    -------
-    update(array_like)
-        Draw the arcs fed to this function.
-    clear()
-        Erase all arcs controlled by this class instance.
-    toggle_norm_arrow_visibility()
-        Toggles display of the norm arrows.
-
     """
 
     def __init__(
         self,
         ax,
-        color=(0, 1, 1),
+        arcs=None,
+        color="black",
         style="-",
-        include_norm_arrows=False,
-        auto_redraw_canvas=False,
+        draw_norm_arrows=False,
         norm_arrow_visibility=True,
-        arrow_length=0.05,
-        arrow_count=5,
+        norm_arrow_length=0.05,
+        norm_arrow_count=5,
+        auto_redraw_canvas=False,
     ):
         """
-        Build the arc drawer, but do not feed it arcs to draw.
-
-        The constructor packages various style and behavior options
-        and sets up a system for drawing arcs, but does not itself
-        accept any arcs or draw anything.  Use method update() to
-        actually draw arcs.
-
         Parameters
         ----------
         ax : matplotlib.axes.Axes
-            A handle to the mpl axis into which the arcs will be
+            A handle to the MPL axis into which the arcs will be
             drawn.
+        arcs : np.ndarray
+            An array that encodes information about the arcs to be drawn.
+            Must be rank 2.  The first dimension indexes arcs.  The
+            second dimension must have shape == 5, whose first five
+            elements are [xcenter, ycenter, angle_start, angle_end,
+            radius].
         color : color_like, optional
             The color of all arcs and norm arrows drawn.  See
             https://matplotlib.org/api/colors_api.html for acceptable
@@ -332,76 +292,64 @@ class ArcDrawer:
             The linestyle used to draw the arcs.  Defaults to a solid
             line.  See matplotlib.lines.Line2D linestyle options for
             a list of the valid values.
-        include_norm_arrows : bool, optional
+        draw_norm_arrows : bool, optional
             If true, adds arrows along the arc surfaces that depict the
             direction of the surface norm, for visualizing the surface
             orientation.
+        norm_arrow_visibility : bool, optional
+            The initial state of the norm arrow visibility.  Defaults to
+            true, so the norm arrows start visible.
+        norm_arrow_length : float, optional
+            The length (in ax coords) of the norm arrows.
+        norm_arrow_count : int, optional
+            How many norm arrows to draw along each surface.
         auto_redraw_canvas : bool, optional
             If true, redraws the MPL figure after updating.  If
             false, does not, and you have to call the canvas redraw
             yourself to see the effect of updating the drawer.
-        norm_arrow_visibility : bool, optional
-            The initial state of the norm arrow visibility.  Defaults to
-            true, so the norm arrows start visible.
-        arrow_length : float, optional
-            The length (in ax coords) of the norm arrows.
-        arrow_count : int, optional
-            How many norm arrows to draw along the surface.
-
         """
-
         self.ax = ax
         self.color = color
         self.style = style
         self.auto_redraw_canvas = auto_redraw_canvas
 
-        self._arc_data = None
+        self.arcs = arcs
 
         self._arc_patches = []
         self._norm_arrows = []
 
-        self.include_norm_arrows = include_norm_arrows
+        self.include_norm_arrows = draw_norm_arrows
         self._norm_arrow_visibility = norm_arrow_visibility
         if self.include_norm_arrows:
-            self.arrow_length = arrow_length
-            self.arrow_count = arrow_count
+            self.arrow_length = norm_arrow_length
+            self.arrow_count = norm_arrow_count
 
-    def update(self, arc_data):
-        """
-        Feed arc data and draw the arcs
+    @property
+    def arcs(self):
+        return self._arcs
 
-        Any previously drawn arcs will be discarded when this method is
-        called to add new ones.  Arcs will be added to the axis, but
-        the canvas will only be redrawn by this method if
-        auto_redraw_canvas is true.
+    @arcs.setter
+    def arcs(self, arcs):
+        if arcs is None:
+            self._arcs = []
+        else:
+            try:
+                shape = arcs.shape
+            except BaseException:
+                raise ValueError(
+                    "ArcDrawer: Invalid arc_data.  Could not retrieve arc_data's shape."
+                )
 
-        Parameters
-        ----------
-        arc_data : np.ndarray
-            An array that encodes information about the arcs to be drawn.
-            Must be rank 2.  The first dimension indexes arcs.  The
-            second dimension must have shape >= 5, whose first five
-            elements are [xcenter, ycenter, angle_start, angle_end,
-            radius].  Any additional elements are ignored.
+            if len(shape) != 2:
+                raise ValueError(
+                    f"ArcDrawer: Invalid arc_data.  Rank must be 2, but is rank {len(shape)}."
+                )
+            if shape[1] < 5:
+                raise ValueError(
+                    f"ArcDrawer: Invalid arc_data.  Dim 1 must have at least 5 elements, but has {shape[1]}."
+                )
 
-        """
-        try:
-            shape = arc_data.shape
-        except BaseException:
-            raise ValueError(
-                "ArcDrawer: Invalid arc_data.  Could not retrieve arc_data's shape."
-            )
-
-        if len(shape) != 2:
-            raise ValueError(
-                f"ArcDrawer: Invalid arc_data.  Rank must be 2, but is rank {len(shape)}."
-            )
-        if shape[1] < 5:
-            raise ValueError(
-                f"ArcDrawer: Invalid arc_data.  Dim 1 must have at least 5 elements, but has {shape[1]}."
-            )
-
-        self._arc_data = arc_data
+            self._arcs = arcs
 
     def draw(self):
         # remove the old arc_patches
@@ -415,12 +363,14 @@ class ArcDrawer:
         self._norm_arrows = []
 
         # draw the new patches
-        for each in self._arc_data:
+        for each in self._arcs:
             self._draw_arc(*each)
 
-        # redraw the canvas
+        self._maybe_draw_canvas()
+
+    def _maybe_draw_canvas(self):
         if self.auto_redraw_canvas:
-            plt.gcf().canvas.draw()
+            self.ax.get_figure().canvas.draw()
 
     def _draw_arc(self, center_x, center_y, angle_start, angle_end, radius):
         self._arc_patches.append(
@@ -445,10 +395,10 @@ class ArcDrawer:
     def _draw_norm_arrows_for_arc(
         self, center_x, center_y, angle_start, angle_end, radius
     ):
-        if angle_start < angle_end:
-            angles = np.linspace(angle_start, angle_end, self.arrow_count)
-        else:
-            angles = np.linspace(angle_start, angle_end + 2 * PI, self.arrow_count)
+        if angle_start >= angle_end:
+            angle_end += 2 * PI
+        angles = np.linspace(angle_start, angle_end, self.arrow_count)
+
         for theta in angles:
             self._norm_arrows.append(
                 self.ax.add_patch(
@@ -464,15 +414,10 @@ class ArcDrawer:
                 )
             )
 
-    def clear(self):
-        """Erase all arcs drawn by the last call to update()."""
-        self.update(np.zeros((0, 5)))
-
     # the next three parts allow to toggle the visibility of arrows that
     # visually depict the norm of the surface
     @property
     def norm_arrow_visibility(self):
-        """The visibility of the norm arrows."""
         return self._norm_arrow_visibility
 
     @norm_arrow_visibility.setter
@@ -484,9 +429,7 @@ class ArcDrawer:
         for arrow in self._norm_arrows:
             arrow.set_visible(self._norm_arrow_visibility)
 
-        # redraw the canvas
-        if self.auto_redraw_canvas:
-            plt.gcf().canvas.draw()
+        self._maybe_draw_canvas()
 
     def toggle_norm_arrow_visibility(self):
         """Toggle the visibility of the norm arrows."""
@@ -498,9 +441,15 @@ class ArcDrawer:
 
     @arrow_count.setter
     def arrow_count(self, count):
+        if not isinstance(count, int):
+            raise TypeError("arrow_count must be int")
+
         if count < 0:
             count = 0
+
         self._arrow_count = count
+
+        self._maybe_draw_canvas()
 
 
 # ----------------------------------------------------------------------------

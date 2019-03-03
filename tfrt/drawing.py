@@ -33,15 +33,15 @@ from .spectrumRGB import rgb
 
 PI = math.pi
 
-VISIBLE_MIN = .38
-VISIBLE_MAX = .78
+VISIBLE_MIN = 0.38
+VISIBLE_MAX = 0.78
 
-RED = .68
-ORANGE = .62
-YELLOW = .575
-GREEN = .51
-BLUE = .45
-PURPLE = .4
+RED = 0.68
+ORANGE = 0.62
+YELLOW = 0.575
+GREEN = 0.51
+BLUE = 0.45
+PURPLE = 0.4
 
 RAINBOW_6 = [RED, ORANGE, YELLOW, GREEN, BLUE, PURPLE]
 
@@ -54,6 +54,7 @@ TODO:
 something like "RayDrawer.line_collection.norm = plt.Normalize(min, max)".  This flexibility (and other like it is why
 I am leaving rayDrawer.line_collection as a public member.
 """
+
 
 class RayDrawer(object):
     """
@@ -95,10 +96,16 @@ class RayDrawer(object):
         
     """
 
-    def __init__(self, ax, min_wavelength=VISIBLE_MIN,
-        max_wavelength=VISIBLE_MAX, style="-",
-        colormap=mpl.colors.ListedColormap(rgb()), b_auto_redraw_canvas=False,
-        units="um"):
+    def __init__(
+        self,
+        ax,
+        min_wavelength=VISIBLE_MIN,
+        max_wavelength=VISIBLE_MAX,
+        style="-",
+        colormap=mpl.colors.ListedColormap(rgb()),
+        b_auto_redraw_canvas=False,
+        units="um",
+    ):
         """
         Build the ray drawer, but do not feed it rays to draw.
         
@@ -149,8 +156,10 @@ class RayDrawer(object):
         elif units == "nm":
             self._wavelength_unit_factor = 1.0
         else:
-            raise ValueError("RayDrawer: Invalid units: {}.  Allowed "
-                "values are 'um', 'nm'.".format(units))
+            raise ValueError(
+                "RayDrawer: Invalid units: {}.  Allowed "
+                "values are 'um', 'nm'.".format(units)
+            )
 
         # Build the line collection and add it to the axes.
         self.line_collection = mpl.collections.LineCollection(
@@ -159,7 +168,9 @@ class RayDrawer(object):
             cmap=colormap,
             norm=plt.Normalize(
                 self._wavelength_unit_factor * min_wavelength,
-                self._wavelength_unit_factor * max_wavelength))
+                self._wavelength_unit_factor * max_wavelength,
+            ),
+        )
         ax.add_collection(self.line_collection)
 
     def update(self, ray_data):
@@ -186,20 +197,25 @@ class RayDrawer(object):
         try:
             shape = ray_data.shape
         except BaseException:
-            raise ValueError("RayDrawer: Invalid ray_data.  Could not "
-                "retrieve ray_data's shape.")
+            raise ValueError(
+                "RayDrawer: Invalid ray_data.  Could not " "retrieve ray_data's shape."
+            )
         if len(shape) != 2:
-            raise ValueError("RayDrawer: Invalid ray_data.  Tensor rank must "
-                "be 2, but is rank {}.".format(len(shape)))
+            raise ValueError(
+                "RayDrawer: Invalid ray_data.  Tensor rank must "
+                "be 2, but is rank {}.".format(len(shape))
+            )
         if shape[1] < 5:
-            raise ValueError("RayDrawer: Invalid ray_data.  Dim 1 must have "
-                "at least 5 elements, but has {}.".format(shape[1]))
+            raise ValueError(
+                "RayDrawer: Invalid ray_data.  Dim 1 must have "
+                "at least 5 elements, but has {}.".format(shape[1])
+            )
 
         # transfer the ray_data into the line collection
-        self.line_collection.set_segments([
-            [(each[0], each[1]), (each[2], each[3])] for each in ray_data])
-        self.line_collection.set_array(
-            self._wavelength_unit_factor * ray_data[:, 4])
+        self.line_collection.set_segments(
+            [[(each[0], each[1]), (each[2], each[3])] for each in ray_data]
+        )
+        self.line_collection.set_array(self._wavelength_unit_factor * ray_data[:, 4])
 
         # redraw the canvas
         if self.b_auto_redraw_canvas:
@@ -208,6 +224,7 @@ class RayDrawer(object):
     def clear(self):
         """ Erase all rays drawn by the last call to update(). """
         self.update(np.zeros((0, 5)))
+
 
 # ----------------------------------------------------------------------------
 
@@ -287,9 +304,17 @@ class ArcDrawer(object):
     
     """
 
-    def __init__(self, ax, color=(0, 1, 1), style="-",
-        b_include_norm_arrows=False, b_auto_redraw_canvas=False,
-        b_norm_arrow_visibility=True, arrow_length=0.05, arrow_count=5):
+    def __init__(
+        self,
+        ax,
+        color=(0, 1, 1),
+        style="-",
+        b_include_norm_arrows=False,
+        b_auto_redraw_canvas=False,
+        b_norm_arrow_visibility=True,
+        arrow_length=0.05,
+        arrow_count=5,
+    ):
         """
         Build the arc drawer, but do not feed it arcs to draw.
         
@@ -333,7 +358,7 @@ class ArcDrawer(object):
         self.color = color
         self.style = style
         self.b_auto_redraw_canvas = b_auto_redraw_canvas
-        
+
         self.b_include_norm_arrows = b_include_norm_arrows
         self._norm_arrow_visibility = b_norm_arrow_visibility
         if self.b_include_norm_arrows:
@@ -363,15 +388,20 @@ class ArcDrawer(object):
         try:
             shape = arc_data.shape
         except BaseException:
-            raise ValueError("ArcDrawer: Invalid arc_data.  Could not "
-                "retrieve arc_data's shape.")
+            raise ValueError(
+                "ArcDrawer: Invalid arc_data.  Could not " "retrieve arc_data's shape."
+            )
 
         if len(shape) != 2:
-            raise ValueError("ArcDrawer: Invalid arc_data.  Rank must be 2, "
-                "but is rank {}.".format(len(shape)))
+            raise ValueError(
+                "ArcDrawer: Invalid arc_data.  Rank must be 2, "
+                "but is rank {}.".format(len(shape))
+            )
         if shape[1] < 5:
-            raise ValueError("ArcDrawer: Invalid arc_data.  Dim 1 must have "
-                "at least 5 elements, but has {}.".format(shape[1]))
+            raise ValueError(
+                "ArcDrawer: Invalid arc_data.  Dim 1 must have "
+                "at least 5 elements, but has {}.".format(shape[1])
+            )
 
         # remove the old arc_patches
         try:
@@ -399,37 +429,42 @@ class ArcDrawer(object):
             radius = each[4]
 
             # add the arc patch
-            self._arc_patches.append(self.ax.add_patch(mpl.patches.Arc(
-                (xcenter, ycenter),
-                abs(2 * radius),
-                abs(2 * radius),
-                theta1=math.degrees(angle_start),
-                theta2=math.degrees(angle_end),
-                color=self.color,
-                linestyle=self.style)))
+            self._arc_patches.append(
+                self.ax.add_patch(
+                    mpl.patches.Arc(
+                        (xcenter, ycenter),
+                        abs(2 * radius),
+                        abs(2 * radius),
+                        theta1=math.degrees(angle_start),
+                        theta2=math.degrees(angle_end),
+                        color=self.color,
+                        linestyle=self.style,
+                    )
+                )
+            )
 
             if self.b_include_norm_arrows:
                 # add the norm arrows
                 if angle_start < angle_end:
-                    angles = np.linspace(
-                        angle_start,
-                        angle_end,
-                        self.arrow_count)
+                    angles = np.linspace(angle_start, angle_end, self.arrow_count)
                 else:
                     angles = np.linspace(
-                        angle_start,
-                        angle_end + 2 * PI,
-                        self.arrow_count)
+                        angle_start, angle_end + 2 * PI, self.arrow_count
+                    )
                 for theta in angles:
                     self._norm_arrows.append(
-                        self.ax.add_patch(mpl.patches.Arrow(
-                            xcenter + abs(radius) * math.cos(theta),
-                            ycenter + abs(radius) * math.sin(theta),
-                            self.arrow_length*math.cos(theta)*np.sign(radius),
-                            self.arrow_length*math.sin(theta)*np.sign(radius),
-                            width=0.4 * self.arrow_length,
-                            color=self.color,
-                            visible=self._norm_arrow_visibility)))
+                        self.ax.add_patch(
+                            mpl.patches.Arrow(
+                                xcenter + abs(radius) * math.cos(theta),
+                                ycenter + abs(radius) * math.sin(theta),
+                                self.arrow_length * math.cos(theta) * np.sign(radius),
+                                self.arrow_length * math.sin(theta) * np.sign(radius),
+                                width=0.4 * self.arrow_length,
+                                color=self.color,
+                                visible=self._norm_arrow_visibility,
+                            )
+                        )
+                    )
 
         # redraw the canvas
         if self.b_auto_redraw_canvas:
@@ -473,6 +508,7 @@ class ArcDrawer(object):
 TODO
 So in this one, if I change the color of the line_collection at runtime, it updates the colors of the lines on a canvas redraw, and does not need a SegmentDrawer.update(), unlike the case with ArcDrawer.  But it does not update the color of the norm arrows.  I understand why this happens.  Question is, is this behavior important enough (and abberrant/inconsistent enough) that I need to deal with getter/setters for these kinds of properties.
 """
+
 
 class SegmentDrawer(object):
     """
@@ -534,9 +570,16 @@ class SegmentDrawer(object):
     
     """
 
-    def __init__(self, ax, color=(0, 1, 1), style="-",
-        b_include_norm_arrows=False, b_auto_redraw_canvas=False,
-        b_norm_arrow_visibility=True, arrow_length=0.05):
+    def __init__(
+        self,
+        ax,
+        color=(0, 1, 1),
+        style="-",
+        b_include_norm_arrows=False,
+        b_auto_redraw_canvas=False,
+        b_norm_arrow_visibility=True,
+        arrow_length=0.05,
+    ):
         """
         Build the segment drawer, but do not feed it segments to draw.
         
@@ -576,7 +619,7 @@ class SegmentDrawer(object):
 
         self.ax = ax
         self.b_auto_redraw_canvas = b_auto_redraw_canvas
-        
+
         self.b_include_norm_arrows = b_include_norm_arrows
         if self.b_include_norm_arrows:
             self._norm_arrow_visibility = b_norm_arrow_visibility
@@ -584,7 +627,8 @@ class SegmentDrawer(object):
 
         # Build the line collection, and add it to the axes
         self.line_collection = mpl.collections.LineCollection(
-            [], colors=color, linestyles=style)
+            [], colors=color, linestyles=style
+        )
         self.ax.add_collection(self.line_collection)
 
     def update(self, segment_data):
@@ -606,20 +650,26 @@ class SegmentDrawer(object):
             elements are ignored.
             
         """
-        
+
         # validate the segment_data shape
         try:
             shape = segment_data.shape
         except BaseException:
-            raise ValueError("SegmentDrawer: Invalid segment_data.  Could "
-                "not retrieve segment_data's shape.")
+            raise ValueError(
+                "SegmentDrawer: Invalid segment_data.  Could "
+                "not retrieve segment_data's shape."
+            )
 
         if len(shape) != 2:
-            raise ValueError("SegmentDrawer: Invalid segment_data.  Rank "
-                "must be 2, but is rank {}.".format(len(shape)))
+            raise ValueError(
+                "SegmentDrawer: Invalid segment_data.  Rank "
+                "must be 2, but is rank {}.".format(len(shape))
+            )
         if shape[1] < 4:
-            raise ValueError("SegmentDrawer: Invalid segment_data.  Dim 1 "
-                "must have at least 4 elements, but has {}.".format(shape[1]))
+            raise ValueError(
+                "SegmentDrawer: Invalid segment_data.  Dim 1 "
+                "must have at least 4 elements, but has {}.".format(shape[1])
+            )
 
         # remove the old arrowPatches
         if self.b_include_norm_arrows:
@@ -657,14 +707,19 @@ class SegmentDrawer(object):
 
             if self.b_include_norm_arrows:
                 # add the norm arrows
-                self._norm_arrows.append(self.ax.add_patch(mpl.patches.Arrow(
-                    (xstart + xend) / 2.0,
-                    (ystart + yend) / 2.0,
-                    self.arrow_length * math.cos(theta),
-                    self.arrow_length * math.sin(theta),
-                    width=0.4 * self.arrow_length,
-                    color=line_color,
-                    visible=self._norm_arrow_visibility)))
+                self._norm_arrows.append(
+                    self.ax.add_patch(
+                        mpl.patches.Arrow(
+                            (xstart + xend) / 2.0,
+                            (ystart + yend) / 2.0,
+                            self.arrow_length * math.cos(theta),
+                            self.arrow_length * math.sin(theta),
+                            width=0.4 * self.arrow_length,
+                            color=line_color,
+                            visible=self._norm_arrow_visibility,
+                        )
+                    )
+                )
 
         self.line_collection.set_segments(segments)
 
@@ -676,7 +731,7 @@ class SegmentDrawer(object):
         """ Erase all segments drawn by the last call to update(). """
         self.update(np.zeros((0, 4)))
 
-    # the next three parts allow to toggle the visibility of arrows that 
+    # the next three parts allow to toggle the visibility of arrows that
     # visually depict the norm of the surface
     @property
     def norm_arrow_visibility(self):
@@ -703,10 +758,12 @@ class SegmentDrawer(object):
         """ Toggle the visibility of the norm arrows. """
         self.norm_arrow_visibility = not self.norm_arrow_visibility
 
-#-----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+
 
 def disable_figure_key_commands():
     """ Disable all keyboard shortcuts in the mpl figure. """
     for key, value in plt.rcParams.items():
         if "keymap" in key:
-            plt.rcParams[key] = ''
+            plt.rcParams[key] = ""

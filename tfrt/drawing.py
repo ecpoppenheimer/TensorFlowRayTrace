@@ -56,7 +56,7 @@ I am leaving rayDrawer.line_collection as a public member.
 """
 
 
-class RayDrawer(object):
+class RayDrawer:
     """
     Class for drawing a rayset.
 
@@ -157,8 +157,7 @@ class RayDrawer(object):
             self._wavelength_unit_factor = 1.0
         else:
             raise ValueError(
-                "RayDrawer: Invalid units: {}.  Allowed "
-                "values are 'um', 'nm'.".format(units)
+                f"RayDrawer: Invalid units: {units}.  Allowed values are 'um', 'nm'."
             )
 
         # Build the line collection and add it to the axes.
@@ -188,25 +187,24 @@ class RayDrawer(object):
             An array that encodes information about the rays to be drawn,
             formatted like the raysets used by tfrt.raytrace.  Must be
             rank 2.  The first dimension indexes rays.  The second
-            dimension must have shape >= 5, whose five elements are
-            [xStart, yStart, xEnd, yEnd, wavelength].  Any additional
-            elements are ignored.
+            dimension must have length == 5, whose five elements are
+            [xStart, yStart, xEnd, yEnd, wavelength].
 
         """
         # validate ray_data's shape
         try:
             shape = ray_data.shape
-        except BaseException:
-            raise ValueError(
+        except AttributeError as e:
+            raise AttributeError(
                 "RayDrawer: Invalid ray_data.  Could not retrieve ray_data's shape."
-            )
+            ) from e
         if len(shape) != 2:
             raise ValueError(
                 f"RayDrawer: Invalid ray_data.  Tensor rank must be 2, but is rank {len(shape)}."
             )
-        if shape[1] < 5:
+        if shape[1] != 5:
             raise ValueError(
-                f"RayDrawer: Invalid ray_data.  Dim 1 must have at least 5 elements, but has {shape[1]}."
+                f"RayDrawer: Invalid ray_data.  Dim 1 must have exactly 5 elements, but has {shape[1]}."
             )
 
         # transfer the ray_data into the line collection
@@ -249,7 +247,7 @@ class ArcDrawer(object):
     instances.  Color and style can be changed after instantiation, but
     you will need to call update afterward to see the change.
 
-    When designing an optcial system with refractive surfaces, it is very
+    When designing an optical system with refractive surfaces, it is very
     important to understand which direction the surface normal points, so
     that the ray tracer can decide whether a ray interaction is an
     internal or external refraction.  To assist with this, ArcDrawer
@@ -359,6 +357,7 @@ class ArcDrawer(object):
 
         self.include_norm_arrows = include_norm_arrows
         self._norm_arrow_visibility = norm_arrow_visibility
+        self._norm_arrows = []
         if self.include_norm_arrows:
             self.arrow_length = arrow_length
             self.arrow_count = arrow_count
@@ -400,21 +399,14 @@ class ArcDrawer(object):
             )
 
         # remove the old arc_patches
-        try:
-            for each in self._arc_patches:
-                each.remove()
-        except BaseException:
-            pass  # Do nothing, there aren't any to remove
+        for each in self._arc_patches:
+            each.remove()
         self._arc_patches = []
 
         # remove the old arrow_patches
-        if self.include_norm_arrows:
-            try:
-                for each in self._norm_arrows:
-                    each.remove()
-            except BaseException:
-                pass  # Do nothing, there aren't any to remove
-            self._norm_arrows = []
+        for each in self._norm_arrows:
+            each.remove()
+        self._norm_arrows = []
 
         # draw the new patches
         for each in arc_data:
@@ -483,11 +475,8 @@ class ArcDrawer(object):
             raise TypeError("visibility must be bool")
         self._norm_arrow_visibility = val
 
-        try:
-            for arrow in self._norm_arrows:
-                arrow.set_visible(self._norm_arrow_visibility)
-        except BaseException:
-            pass  # Do nothing, there aren't any to update
+        for arrow in self._norm_arrows:
+            arrow.set_visible(self._norm_arrow_visibility)
 
         # redraw the canvas
         if self.auto_redraw_canvas:
@@ -617,6 +606,7 @@ class SegmentDrawer(object):
         self.auto_redraw_canvas = auto_redraw_canvas
 
         self.include_norm_arrows = include_norm_arrows
+        self._norm_arrows = []
         if self.include_norm_arrows:
             self._norm_arrow_visibility = norm_arrow_visibility
             self.arrow_length = arrow_length
@@ -641,37 +631,32 @@ class SegmentDrawer(object):
         segment_data : np.ndarray
             An array that encodes information about the segments to be
             drawn.  Must be rank 2.  The first dimension indexes segments.
-            The second dimension must have shape >= 4, whose first four
-            elements are [xstart, ystart, xend, yend].  Any additional
-            elements are ignored.
+            The second dimension must have length == 4, whose four
+            elements are [xstart, ystart, xend, yend].
 
         """
 
         # validate the segment_data shape
         try:
             shape = segment_data.shape
-        except BaseException:
-            raise ValueError(
+        except AttributeError as e:
+            raise AttributeError(
                 "SegmentDrawer: Invalid segment_data.  Could not retrieve segment_data's shape."
-            )
+            ) from e
 
         if len(shape) != 2:
             raise ValueError(
                 f"SegmentDrawer: Invalid segment_data.  Rank must be 2, but is rank {len(shape)}."
             )
-        if shape[1] < 4:
+        if shape[1] == 4:
             raise ValueError(
-                f"SegmentDrawer: Invalid segment_data.  Dim 1 must have at least 4 elements, but has {shape[1]}."
+                f"SegmentDrawer: Invalid segment_data.  Dim 1 must have 4 elements, but has {shape[1]}."
             )
 
         # remove the old arrowPatches
-        if self.include_norm_arrows:
-            try:
-                for each in self._norm_arrows:
-                    each.remove()
-            except BaseException:
-                pass  # There are none, so do nothing
-            self._norm_arrows = []
+        for norm_arrow in self._norm_arrows:
+            norm_arrow.remove()
+        self._norm_arrows = []
 
         """
         TODO
@@ -737,11 +722,8 @@ class SegmentDrawer(object):
             raise TypeError("visibility must be bool")
 
         self._norm_arrow_visibility = val
-        try:
-            for arrow in self._norm_arrows:
-                arrow.set_visible(self._norm_arrow_visibility)
-        except BaseException:
-            pass
+        for arrow in self._norm_arrows:
+            arrow.set_visible(self._norm_arrow_visibility)
 
         # redraw the canvas
         if self.auto_redraw_canvas:

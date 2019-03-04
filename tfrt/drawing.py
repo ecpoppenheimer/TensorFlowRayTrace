@@ -110,6 +110,8 @@ class RayDrawer:
             false, does not, and you have to call the canvas redraw
             yourself to see the effect of updating the drawer.
         """
+        self.ax = ax
+        self.auto_redraw_canvas = auto_redraw_canvas
         self.rays = rays
 
         try:
@@ -123,9 +125,7 @@ class RayDrawer:
             [], linestyles=style, cmap=colormap
         )
         self.set_wavelength_limits(min_wavelength, max_wavelength)
-        ax.add_collection(self._line_collection)
-
-        self.auto_redraw_canvas = auto_redraw_canvas
+        self.ax.add_collection(self._line_collection)
 
     @property
     def rays(self):
@@ -271,6 +271,7 @@ class ArcDrawer:
             yourself to see the effect of updating the drawer.
         """
         self.ax = ax
+        self.auto_redraw_canvas = auto_redraw_canvas
         self.color = color
         self.style = style
 
@@ -284,8 +285,6 @@ class ArcDrawer:
         if self.include_norm_arrows:
             self.arrow_length = norm_arrow_length
             self.arrow_count = norm_arrow_count
-
-        self.auto_redraw_canvas = auto_redraw_canvas
 
     @property
     def arcs(self):
@@ -499,6 +498,7 @@ class SegmentDrawer:
         """
 
         self.ax = ax
+        self.auto_redraw_canvas = auto_redraw_canvas
 
         self.segments = segments
 
@@ -513,8 +513,6 @@ class SegmentDrawer:
             [], colors=color, linestyles=style
         )
         self.ax.add_collection(self._line_collection)
-
-        self.auto_redraw_canvas = auto_redraw_canvas
 
     @property
     def segments(self):

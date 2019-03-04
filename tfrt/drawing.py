@@ -81,7 +81,7 @@ class RayDrawer:
             An array that encodes information about the rays to be drawn,
             formatted like the raysets used by tfrt.raytrace.  Must be
             rank 2.  The first dimension indexes rays.  The second
-            dimension must have length == 5, whose five elements are
+            dimension must have length >= 5, whose first five elements are
             [start_x, start_y, end_x, end_y, wavelength].
         min_wavelength : float, optional
             The minimum wavelength, used only to normalize the
@@ -140,22 +140,26 @@ class RayDrawer:
                 shape = rays.shape
             except AttributeError as e:
                 raise AttributeError(
-                    "RayDrawer: Invalid ray_data.  Could not retrieve ray_data's shape."
+                    f"{self.__class__.__name__}: Invalid rays.  Could not retrieve rays's shape."
                 ) from e
+
             if len(shape) != 2:
                 raise ValueError(
-                    f"RayDrawer: Invalid ray_data.  Tensor rank must be 2, but is rank {len(shape)}."
+                    f"{self.__class__.__name__}: Invalid rays.  Tensor rank must be 2, but is rank {len(shape)}."
                 )
-            if shape[1] != 5:
+            if shape[1] < 5:
                 raise ValueError(
-                    f"RayDrawer: Invalid ray_data.  Dim 1 must have exactly 5 elements, but has {shape[1]}."
+                    f"{self.__class__.__name__}: Invalid rays.  Dim 1 must have at least 5 elements, but has {shape[1]}."
                 )
 
             self._rays = rays
 
     def draw(self):
         self._line_collection.set_segments(
-            [[(ray[0], ray[1]), (ray[2], ray[3])] for ray in self.rays]
+            [
+                [(start_x, start_y), (end_x, end_y)]
+                for start_x, start_y, end_x, end_y, *_ in self.rays
+            ]
         )
         self._line_collection.set_array(self._wavelength_unit_factor * self.rays[:, 4])
 
@@ -192,16 +196,6 @@ class RayDrawer:
 
 
 # ----------------------------------------------------------------------------
-
-"""
-TODO:
-1) In the surface drawer classes, I am leaving everything except norm_arrow_visibility as public, because I can imagine some validity to changing those values during the run of the program.  It would be pretty crazy to change the axis the surfaces are being drawn to, but like, I think it wouldn't throw errors or anything.  norm_arrow_visibility is private because I have already implemented a getter/setter system for that one, since I know how I want the class to behave when that value is changed, and it is useful to be able to toggle that value during runtime.  If you change any of the other members, the drawing will not update until the user calls update again.  I suppose I could implement getter/setter for all of these other values, but... I am not sure if it is worth the trouble.
-
-1.5) I can imagine there could be a bug if you change include_norm_arrows
-during runtime.  Should this one be private?
-
-2) mpl.collections.LineCollection is a nice container that I can use for segments (and rays) but not arcs or norm arrows.  But I suppose I can use a mpl.collections.PatchCollection.  May clean things up.  Documentation claims that it would also be faster to store many patches in a patch collection, rather than have a list of many patches.  I see there is also a CircleCollection, but on skimming the documentation, that looks like the wrong thing to use.  Like, its for dots.  Not obvious how to even use it.
-"""
 
 
 class ArcDrawer:
@@ -250,8 +244,8 @@ class ArcDrawer:
         arcs : np.ndarray
             An array that encodes information about the arcs to be drawn.
             Must be rank 2.  The first dimension indexes arcs.  The
-            second dimension must have shape == 5, elements are
-            [center_x, center_y, angle_start, angle_end, radius].
+            second dimension must have length >= 5, whose first five elements
+            are [center_x, center_y, angle_start, angle_end, radius].
         color : color_like, optional
             The color of all arcs and norm arrows drawn.  See
             https://matplotlib.org/api/colors_api.html for acceptable
@@ -304,36 +298,33 @@ class ArcDrawer:
         else:
             try:
                 shape = arcs.shape
-            except BaseException:
+            except AttributeError as e:
                 raise ValueError(
-                    "ArcDrawer: Invalid arc_data.  Could not retrieve arc_data's shape."
-                )
+                    f"{self.__class__.__name__}: Invalid arcs.  Could not retrieve arcs's shape."
+                ) from e
 
             if len(shape) != 2:
                 raise ValueError(
-                    f"ArcDrawer: Invalid arc_data.  Rank must be 2, but is rank {len(shape)}."
+                    f"{self.__class__.__name__}: Invalid arcs.  Rank must be 2, but is rank {len(shape)}."
                 )
             if shape[1] < 5:
                 raise ValueError(
-                    f"ArcDrawer: Invalid arc_data.  Dim 1 must have at least 5 elements, but has {shape[1]}."
+                    f"{self.__class__.__name__}: Invalid arcs.  Dim 1 must have at least 5 elements, but has {shape[1]}."
                 )
 
             self._arcs = arcs
 
     def draw(self):
-        # remove the old arc_patches
         for arc_patch in self._arc_patches:
             arc_patch.remove()
         self._arc_patches = []
 
-        # remove the old arrow_patches
         for norm_arrow in self._norm_arrows:
             norm_arrow.remove()
         self._norm_arrows = []
 
-        # draw the new patches
         for arc in self._arcs:
-            self._draw_arc(*arc)
+            self._draw_arc(*arc[:5])
 
         self._maybe_draw_canvas()
 
@@ -482,8 +473,8 @@ class SegmentDrawer:
         segments : np.ndarray
             An array that encodes information about the segments to be
             drawn.  Must be rank 2.  The first dimension indexes segments.
-            The second dimension must have length == 4, whose elements are
-            [start_x, stary_y, end_x, end_y].
+            The second dimension must have length >= 4, whose first four
+            elements are [start_x, stary_y, end_x, end_y].
         color : color_like, optional
             The color of all segments and norm arrows drawn.  See
             https://matplotlib.org/api/colors_api.html for acceptable
@@ -538,38 +529,33 @@ class SegmentDrawer:
                 shape = segments.shape
             except AttributeError as e:
                 raise AttributeError(
-                    "SegmentDrawer: Invalid segment_data.  Could not retrieve segment_data's shape."
+                    f"{self.__class__.__name__}: Invalid segments.  Could not retrieve segments's shape."
                 ) from e
 
             if len(shape) != 2:
                 raise ValueError(
-                    f"SegmentDrawer: Invalid segment_data.  Rank must be 2, but is rank {len(shape)}."
+                    f"{self.__class__.__name__}: Invalid segments.  Rank must be 2, but is rank {len(shape)}."
                 )
-            if shape[1] != 4:
+            if shape[1] < 4:
                 raise ValueError(
-                    f"SegmentDrawer: Invalid segment_data.  Dim 1 must have 4 elements, but has {shape[1]}."
+                    f"{self.__class__.__name__}: Invalid segments.  Dim 1 must have at least 4 elements, but has {shape[1]}."
                 )
 
             self._segments = segments
 
     def draw(self):
-        # remove the old arrowPatches
         for norm_arrow in self._norm_arrows:
             norm_arrow.remove()
         self._norm_arrows = []
 
         arrow_color = self._line_collection.get_colors()[0]
-
-        # compose the new line collection
         segments = []
-        for start_x, start_y, end_x, end_y in self.segments:
+        for start_x, start_y, end_x, end_y, *_ in self.segments:
             theta = np.arctan2(end_y - start_y, end_x - start_x) + PI / 2.0
 
-            # build the collections segments
             segments.append([(start_x, start_y), (end_x, end_y)])
 
             if self.include_norm_arrows:
-                # add the norm arrows
                 self._norm_arrows.append(
                     self.ax.add_patch(
                         mpl.patches.Arrow(

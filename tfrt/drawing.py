@@ -69,7 +69,6 @@ class RayDrawer:
         units="um",
         style="-",
         colormap=mpl.colors.ListedColormap(rgb()),
-        auto_redraw_canvas=False,
     ):
         """
         Parameters
@@ -105,13 +104,8 @@ class RayDrawer:
         colormap : matplotlib.colors.Colormap, optional
             The colormap to use for coloring the rays.  Defaults to
             the spectrumRGB map.
-        auto_redraw_canvas : bool, optional
-            If true, redraws the MPL figure after updating.  If
-            false, does not, and you have to call the canvas redraw
-            yourself to see the effect of updating the drawer.
         """
         self.ax = ax
-        self.auto_redraw_canvas = auto_redraw_canvas
         self.rays = rays
 
         try:
@@ -163,12 +157,6 @@ class RayDrawer:
         )
         self._line_collection.set_array(self._wavelength_unit_factor * self.rays[:, 4])
 
-        self._maybe_draw_canvas()
-
-    def _maybe_draw_canvas(self):
-        if self.auto_redraw_canvas:
-            self.ax.get_figure().canvas.draw()
-
     @property
     def colormap(self):
         return self._line_collection.cmap
@@ -176,7 +164,6 @@ class RayDrawer:
     @colormap.setter
     def colormap(self, colormap):
         self._line_collection.cmap = colormap
-        self._maybe_draw_canvas()
 
     @property
     def style(self):
@@ -185,14 +172,12 @@ class RayDrawer:
     @style.setter
     def style(self, style):
         self._line_collection.set_linestyle(style)
-        self._maybe_draw_canvas()
 
     def set_wavelength_limits(self, min, max):
         """Change the minimum and maximum wavelengths for the colormap normalization."""
         self._line_collection.norm = plt.Normalize(
             self._wavelength_unit_factor * min, self._wavelength_unit_factor * max
         )
-        self._maybe_draw_canvas()
 
 
 # ----------------------------------------------------------------------------
@@ -231,9 +216,8 @@ class ArcDrawer:
         style="-",
         draw_norm_arrows=False,
         norm_arrow_visibility=True,
-        norm_arrow_length=0.05,
         norm_arrow_count=5,
-        auto_redraw_canvas=False,
+        norm_arrow_length=0.05,
     ):
         """
         Parameters
@@ -261,30 +245,23 @@ class ArcDrawer:
         norm_arrow_visibility : bool, optional
             The initial state of the norm arrow visibility.  Defaults to
             true, so the norm arrows start visible.
-        norm_arrow_length : float, optional
-            The length (in ax coords) of the norm arrows.
         norm_arrow_count : int, optional
             How many norm arrows to draw along each surface.
-        auto_redraw_canvas : bool, optional
-            If true, redraws the MPL figure after updating.  If
-            false, does not, and you have to call the canvas redraw
-            yourself to see the effect of updating the drawer.
+        norm_arrow_length : float, optional
+            The length (in ax coords) of the norm arrows.
         """
         self.ax = ax
-        self.auto_redraw_canvas = auto_redraw_canvas
         self.color = color
         self.style = style
 
         self.arcs = arcs
-
         self._arc_patches = []
-        self._norm_arrows = []
 
-        self.include_norm_arrows = draw_norm_arrows
+        self._norm_arrows = []
+        self.draw_norm_arrows = draw_norm_arrows
         self._norm_arrow_visibility = norm_arrow_visibility
-        if self.include_norm_arrows:
-            self.arrow_length = norm_arrow_length
-            self.arrow_count = norm_arrow_count
+        self.norm_arrow_count = norm_arrow_count
+        self.norm_arrow_length = norm_arrow_length
 
     @property
     def arcs(self):
@@ -325,12 +302,6 @@ class ArcDrawer:
         for arc in self._arcs:
             self._draw_arc(*arc[:5])
 
-        self._maybe_draw_canvas()
-
-    def _maybe_draw_canvas(self):
-        if self.auto_redraw_canvas:
-            self.ax.get_figure().canvas.draw()
-
     def _draw_arc(self, center_x, center_y, angle_start, angle_end, radius):
         self._arc_patches.append(
             self.ax.add_patch(
@@ -346,7 +317,7 @@ class ArcDrawer:
             )
         )
 
-        if self.include_norm_arrows:
+        if self.draw_norm_arrows:
             self._draw_norm_arrows_for_arc(
                 center_x, center_y, angle_start, angle_end, radius
             )
@@ -356,7 +327,7 @@ class ArcDrawer:
     ):
         if angle_start >= angle_end:
             angle_end += 2 * PI
-        angles = np.linspace(angle_start, angle_end, self.arrow_count)
+        angles = np.linspace(angle_start, angle_end, self.norm_arrow_count)
 
         for theta in angles:
             self._norm_arrows.append(
@@ -364,32 +335,14 @@ class ArcDrawer:
                     mpl.patches.Arrow(
                         center_x + abs(radius) * math.cos(theta),
                         center_y + abs(radius) * math.sin(theta),
-                        self.arrow_length * math.cos(theta) * np.sign(radius),
-                        self.arrow_length * math.sin(theta) * np.sign(radius),
-                        width=0.4 * self.arrow_length,
+                        self.norm_arrow_length * math.cos(theta) * np.sign(radius),
+                        self.norm_arrow_length * math.sin(theta) * np.sign(radius),
+                        width=0.4 * self.norm_arrow_length,
                         color=self.color,
                         visible=self._norm_arrow_visibility,
                     )
                 )
             )
-
-    @property
-    def color(self):
-        return self._color
-
-    @color.setter
-    def color(self, color):
-        self._color = color
-        self._maybe_draw_canvas()
-
-    @property
-    def style(self):
-        return self._style
-
-    @style.setter
-    def style(self, style):
-        self._style = style
-        self._maybe_draw_canvas()
 
     # the next three parts allow to toggle the visibility of arrows that
     # visually depict the norm of the surface
@@ -406,18 +359,16 @@ class ArcDrawer:
         for arrow in self._norm_arrows:
             arrow.set_visible(self._norm_arrow_visibility)
 
-        self._maybe_draw_canvas()
-
     def toggle_norm_arrow_visibility(self):
         """Toggle the visibility of the norm arrows."""
         self.norm_arrow_visibility = not self.norm_arrow_visibility
 
     @property
-    def arrow_count(self):
+    def norm_arrow_count(self):
         return self._arrow_count
 
-    @arrow_count.setter
-    def arrow_count(self, count):
+    @norm_arrow_count.setter
+    def norm_arrow_count(self, count):
         if not isinstance(count, int):
             raise TypeError("arrow_count must be int")
 
@@ -426,7 +377,16 @@ class ArcDrawer:
 
         self._arrow_count = count
 
-        self._maybe_draw_canvas()
+    @property
+    def norm_arrow_length(self):
+        return self._norm_arrow_length
+
+    @norm_arrow_length.setter
+    def norm_arrow_length(self, length):
+        if length < 0:
+            length = 0
+
+        self._norm_arrow_length = length
 
 
 class SegmentDrawer:
@@ -460,8 +420,7 @@ class SegmentDrawer:
         style="-",
         draw_norm_arrows=False,
         norm_arrow_visibility=True,
-        arrow_length=0.05,
-        auto_redraw_canvas=False,
+        norm_arrow_length=0.05,
     ):
         """
         Parameters
@@ -489,24 +448,18 @@ class SegmentDrawer:
         norm_arrow_visibility : bool, optional
             The initial state of the norm arrow visibility.  Defaults to
             true, so the norm arrows start visible.
-        arrow_length : float, optional
+        norm_arrow_length : float, optional
             The length (in ax coords) of the norm arrows.
-        auto_redraw_canvas : bool, optional
-            If true, redraws the MPL figure after updating.  If
-            false, does not, and you have to call the canvas redraw
-            yourself to see the effect of updating the drawer.
         """
 
         self.ax = ax
-        self.auto_redraw_canvas = auto_redraw_canvas
 
         self.segments = segments
 
-        self.include_norm_arrows = draw_norm_arrows
         self._norm_arrows = []
-        if self.include_norm_arrows:
-            self._norm_arrow_visibility = norm_arrow_visibility
-            self.arrow_length = arrow_length
+        self.draw_norm_arrows = draw_norm_arrows
+        self.norm_arrow_visibility = norm_arrow_visibility
+        self.norm_arrow_length = norm_arrow_length
 
         # Build the line collection, and add it to the axes
         self._line_collection = mpl.collections.LineCollection(
@@ -553,15 +506,15 @@ class SegmentDrawer:
 
             segments.append([(start_x, start_y), (end_x, end_y)])
 
-            if self.include_norm_arrows:
+            if self.draw_norm_arrows:
                 self._norm_arrows.append(
                     self.ax.add_patch(
                         mpl.patches.Arrow(
                             (start_x + end_x) / 2.0,
                             (start_y + end_y) / 2.0,
-                            self.arrow_length * math.cos(theta),
-                            self.arrow_length * math.sin(theta),
-                            width=0.4 * self.arrow_length,
+                            self.norm_arrow_length * math.cos(theta),
+                            self.norm_arrow_length * math.sin(theta),
+                            width=0.4 * self.norm_arrow_length,
                             color=arrow_color,
                             visible=self._norm_arrow_visibility,
                         )
@@ -570,12 +523,6 @@ class SegmentDrawer:
 
         self._line_collection.set_segments(segments)
 
-        self._maybe_draw_canvas()
-
-    def _maybe_draw_canvas(self):
-        if self.auto_redraw_canvas:
-            self.ax.get_figure().canvas.draw()
-
     @property
     def color(self):
         return self._line_collection.get_color()[0]
@@ -583,7 +530,6 @@ class SegmentDrawer:
     @color.setter
     def color(self, color):
         self._line_collection.set_color(color)
-        self._maybe_draw_canvas()
 
     @property
     def style(self):
@@ -592,7 +538,6 @@ class SegmentDrawer:
     @style.setter
     def style(self, style):
         self._line_collection.set_linestyle(style)
-        self._maybe_draw_canvas()
 
     # the next three parts allow to toggle the visibility of arrows that
     # visually depict the norm of the surface
@@ -610,11 +555,20 @@ class SegmentDrawer:
         for arrow in self._norm_arrows:
             arrow.set_visible(self._norm_arrow_visibility)
 
-        self._maybe_draw_canvas()
-
     def toggle_norm_arrow_visibility(self):
         """Toggle the visibility of the norm arrows."""
         self.norm_arrow_visibility = not self.norm_arrow_visibility
+
+    @property
+    def norm_arrow_length(self):
+        return self._norm_arrow_length
+
+    @norm_arrow_length.setter
+    def norm_arrow_length(self, length):
+        if length < 0:
+            length = 0
+
+        self._norm_arrow_length = length
 
 
 # -----------------------------------------------------------------------------
@@ -625,3 +579,7 @@ def disable_figure_key_commands():
     for key, value in plt.rcParams.items():
         if "keymap" in key:
             plt.rcParams[key] = ""
+
+
+def redraw_current_figure():
+    plt.gcf().canvas.draw()

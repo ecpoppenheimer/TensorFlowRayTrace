@@ -50,10 +50,12 @@ def on_key(event, drawer):
         drawer.colormap = next(COLORMAPS)
 
     drawer.draw()
-    plt.gcf().canvas.draw()
+    drawing.redraw_current_figure()
 
 
 if __name__ == "__main__":
+    drawing.disable_figure_key_commands()
+
     # set up the figure and axes
     fig, ax = plt.subplots(1, 1, figsize=(15, 9))
 

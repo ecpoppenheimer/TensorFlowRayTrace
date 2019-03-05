@@ -38,19 +38,25 @@ def on_key(event, drawer):
     elif event.key == "n":
         drawer.toggle_norm_arrow_visibility()
     elif event.key == "a":
-        drawer.arrow_count += 1
+        drawer.norm_arrow_count += 1
     elif event.key == "z":
-        drawer.arrow_count -= 1
+        drawer.norm_arrow_count -= 1
+    elif event.key == "k":
+        drawer.norm_arrow_length *= 1.1
+    elif event.key == "m":
+        drawer.norm_arrow_length *= 0.9
     elif event.key == "u":
         drawer.color = next(COLORS)
     elif event.key == "i":
         drawer.style = next(STYLES)
 
     drawer.draw()
-    plt.gcf().canvas.draw()
+    drawing.redraw_current_figure()
 
 
 if __name__ == "__main__":
+    drawing.disable_figure_key_commands()
+
     # set up the figure and axes
     fig, ax = plt.subplots(1, 1, figsize=(15, 9))
 

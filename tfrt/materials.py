@@ -91,4 +91,4 @@ def soda_lime(x):
     return 1.5130e0 - 3.169e-9 * x ** 2 + 3.962e3 * x ** -2
     
 def vacuum(x):
-    return tf.zeros_like(x)
+    return tf.ones_like(x)

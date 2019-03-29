@@ -43,19 +43,19 @@ from .spectrumRGB import rgb
 
 PI = math.pi
 
-VISIBLE_MIN = 0.38
-VISIBLE_MAX = 0.78
+VISIBLE_MIN = 380
+VISIBLE_MAX = 780
 
-RED = 0.68
-ORANGE = 0.62
-YELLOW = 0.575
-GREEN = 0.51
-BLUE = 0.45
-PURPLE = 0.4
+RED = 680
+ORANGE = 620
+YELLOW = 575
+GREEN = 510
+BLUE = 450
+PURPLE = 400
 
 RAINBOW_6 = [RED, ORANGE, YELLOW, GREEN, BLUE, PURPLE]
 
-UNIT_TO_NUMBER = {"nm": 1000, "um": 1}
+UNIT_TO_NUMBER = {"nm": 1, "um": 0.001}
 
 # ------------------------------------------------------------------------------------
 

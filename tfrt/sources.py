@@ -5,6 +5,7 @@ Classes to help make source light raysets that can be fed to the ray tracer.
 
 """
 import math
+import itertools
 from abc import ABC, abstractmethod
 
 from scipy.special import erfinv
@@ -15,6 +16,8 @@ PI = math.pi
 
 # =====================================================================================
 
+COUNTER = itertools.count(0)
+
 
 class AngularDistributionBase(ABC):
     """
@@ -23,7 +26,7 @@ class AngularDistributionBase(ABC):
 
     """
 
-    def __init__(self, min_angle, max_angle, sample_count, name="AngularDistribution"):
+    def __init__(self, min_angle, max_angle, sample_count, name=None):
         """
         Angular distribution constructors do not need to follow the pattern set by
         the constructor defined here, but most will, so this implementation is
@@ -36,7 +39,7 @@ class AngularDistributionBase(ABC):
         self._min_angle = min_angle
         self._max_angle = max_angle
         self._sample_count = sample_count
-        self._name = name
+        self.name = name or f"{self.__class__.__name__}-{next(COUNTER)}"
 
         self._angles = None
         self._ranks = None
@@ -147,13 +150,13 @@ class ManualAngleDistribution(AngularDistributionBase):
 
     """
 
-    def __init__(self, angles, ranks=None, name="ManualAngleDistribution"):
+    def __init__(self, angles, ranks=None, name=None):
         super().__init__(name=name)
         self._angles = angles
         self._ranks = ranks
 
     def build(self):
-        with tf.name_scope(self._name) as scope:
+        with tf.name_scope(self.name) as scope:
             self._angles = tf.cast(self._angles, tf.float64)
             if self._ranks is not None:
                 self._ranks = tf.cast(self._ranks, tf.float64)
@@ -167,17 +170,11 @@ class StaticUniformAngularDistribution(AngularDistributionBase):
 
     """
 
-    def __init__(
-        self,
-        min_angle,
-        max_angle,
-        sample_count,
-        name="StaticUniformAngularDistribution",
-    ):
+    def __init__(self, min_angle, max_angle, sample_count, name=None):
         super().__init__(min_angle, max_angle, sample_count, name=name)
 
     def build(self):
-        with tf.name_scope(self._name) as scope:
+        with tf.name_scope(self.name) as scope:
             with tf.control_dependencies(self._angle_limit_validation_ops(-PI, PI)):
                 self._angles = tf.cast(
                     tf.linspace(self._min_angle, self._max_angle, self._sample_count),
@@ -194,17 +191,11 @@ class RandomUniformAngularDistribution(AngularDistributionBase):
 
     """
 
-    def __init__(
-        self,
-        min_angle,
-        max_angle,
-        sample_count,
-        name="RandomUniformAngularDistribution",
-    ):
+    def __init__(self, min_angle, max_angle, sample_count, name=None):
         super().__init__(min_angle, max_angle, sample_count, name=name)
 
     def build(self):
-        with tf.name_scope(self._name) as scope:
+        with tf.name_scope(self.name) as scope:
             with tf.control_dependencies(self._angle_limit_validation_ops(-PI, PI)):
                 self._angles = tf.random_uniform(
                     (self._sample_count,),
@@ -223,17 +214,11 @@ class StaticLambertianAngularDistribution(AngularDistributionBase):
 
     """
 
-    def __init__(
-        self,
-        min_angle,
-        max_angle,
-        sample_count,
-        name="StaticLambertianAngularDistribution",
-    ):
+    def __init__(self, min_angle, max_angle, sample_count, name=None):
         super().__init__(min_angle, max_angle, sample_count, name=name)
 
     def build(self):
-        with tf.name_scope(self._name) as scope:
+        with tf.name_scope(self.name) as scope:
             with tf.control_dependencies(
                 self._angle_limit_validation_ops(-PI / 2.0, PI / 2.0)
             ):
@@ -256,17 +241,11 @@ class RandomLambertianAngularDistribution(AngularDistributionBase):
 
     """
 
-    def __init__(
-        self,
-        min_angle,
-        max_angle,
-        sample_count,
-        name="RandomLambertianAngularDistribution",
-    ):
+    def __init__(self, min_angle, max_angle, sample_count, name=None):
         super().__init__(min_angle, max_angle, sample_count, name=name)
 
     def build(self):
-        with tf.name_scope(self._name) as scope:
+        with tf.name_scope(self.name) as scope:
             with tf.control_dependencies(
                 self._angle_limit_validation_ops(-PI / 2.0, PI / 2.0)
             ):
@@ -293,7 +272,7 @@ class BasePointDistributionBase(ABC):
     """
 
     @abstractmethod
-    def __init__(self, name="BasePointDistribution"):
+    def __init__(self, name=None):
         """
         A constructor should not construct any tf ops, it should only store values
         for use by the class at a later time.  All base point distribution
@@ -301,7 +280,7 @@ class BasePointDistributionBase(ABC):
         to define a namespace in which all tf ops constructed by the class are placed.
 
         """
-        self._name = name
+        self.name = name or f"{self.__class__.__name__}-{next(COUNTER)}"
         self._base_points = None
         self._ranks = None
 
@@ -329,7 +308,7 @@ class BasePointDistributionBase(ABC):
         with tf.name_scope(self._name) as scope:
 
         """
-        pass
+        raise NotImplementedError
 
     @property
     def needs_build(self):
@@ -370,16 +349,14 @@ class ManualBasePointDistribution(BasePointDistributionBase):
 
     """
 
-    def __init__(
-        self, x_points, y_points, ranks=None, name="ManualBasePointDistribution"
-    ):
+    def __init__(self, x_points, y_points, ranks=None, name=None):
         super().__init__(name=name)
         self._x_points = x_points
         self._y_points = y_points
         self._ranks = ranks
 
     def build(self):
-        with tf.name_scope(self._name) as scope:
+        with tf.name_scope(self.name) as scope:
             self._base_points = (
                 tf.cast(self._x_points, tf.float64),
                 tf.cast(self._y_points, tf.float64),
@@ -413,12 +390,7 @@ class BeamPointBase(BasePointDistributionBase):
     """
 
     def __init__(
-        self,
-        beam_start,
-        beam_end,
-        sample_count,
-        name="BeamPointDistribution",
-        central_angle=0.0,
+        self, beam_start, beam_end, sample_count, name=None, central_angle=0.0
     ):
         super().__init__(name=name)
         self._beam_start = beam_start
@@ -482,19 +454,14 @@ class BeamPointBase(BasePointDistributionBase):
 
 class StaticUniformBeam(BeamPointBase):
     def __init__(
-        self,
-        beam_start,
-        beam_end,
-        sample_count,
-        name="StaticUniformBeam",
-        central_angle=0.0,
+        self, beam_start, beam_end, sample_count, name=None, central_angle=0.0
     ):
         super().__init__(
             beam_start, beam_end, sample_count, name=name, central_angle=central_angle
         )
 
     def build(self):
-        with tf.name_scope(self._name) as scope:
+        with tf.name_scope(self.name) as scope:
             self._parametrize_beam()
             self._ranks = tf.linspace(
                 self._min_rank, self._max_rank, self._sample_count
@@ -504,19 +471,14 @@ class StaticUniformBeam(BeamPointBase):
 
 class RandomUniformBeam(BeamPointBase):
     def __init__(
-        self,
-        beam_start,
-        beam_end,
-        sample_count,
-        name="RandomUniformBeam",
-        central_angle=0.0,
+        self, beam_start, beam_end, sample_count, name=None, central_angle=0.0
     ):
         super().__init__(
             beam_start, beam_end, sample_count, name=name, central_angle=central_angle
         )
 
     def build(self):
-        with tf.name_scope(self._name) as scope:
+        with tf.name_scope(self.name) as scope:
             self._parametrize_beam()
             self._ranks = tf.random_uniform(
                 (self._sample_count,), self._min_rank, self._max_rank, dtype=tf.float64
@@ -537,9 +499,7 @@ class AperaturePointBase(BasePointDistributionBase):
 
     """
 
-    def __init__(
-        self, start_point, end_point, sample_count, name="AperaturePointDistribution"
-    ):
+    def __init__(self, start_point, end_point, sample_count, name=None):
         super().__init__(name=name)
         self._start_point = start_point
         self._end_point = end_point
@@ -560,7 +520,7 @@ class AperaturePointBase(BasePointDistributionBase):
         most use cases for this class.
 
         """
-        with tf.name_scope(self._name) as scope:
+        with tf.name_scope(self.name) as scope:
             self._start_point = tf.cast(self._start_point, tf.float64)
             self._end_point = tf.cast(self._end_point, tf.float64)
 
@@ -605,9 +565,7 @@ class AperaturePointBase(BasePointDistributionBase):
 
 
 class StaticUniformAperaturePoints(AperaturePointBase):
-    def __init__(
-        self, start_point, end_point, sample_count, name="StaticUniformAperaturePoints"
-    ):
+    def __init__(self, start_point, end_point, sample_count, name=None):
         super().__init__(start_point, end_point, sample_count, name=name)
 
     def _build_ranks(self):
@@ -615,9 +573,7 @@ class StaticUniformAperaturePoints(AperaturePointBase):
 
 
 class RandomUniformAperaturePoints(AperaturePointBase):
-    def __init__(
-        self, start_point, end_point, sample_count, name="RandomUniformAperaturePoints"
-    ):
+    def __init__(self, start_point, end_point, sample_count, name=None):
         super().__init__(start_point, end_point, sample_count, name=name)
 
     def _build_ranks(self):
@@ -654,7 +610,7 @@ class SourceBase(ABC):
     """
 
     @abstractmethod
-    def __init__(self, name="SourceBase", dense=True):
+    def __init__(self, name=None, dense=True):
         """
         If a source is dense, that means that rays will be generated with every
         combination of the values of each of the parameters.  This is convenient for
@@ -664,7 +620,7 @@ class SourceBase(ABC):
         they will be less random.  But the source will work either way.
 
         """
-        self._name = name
+        self.name = name or f"{self.__class__.__name__}-{next(COUNTER)}"
         self._rays = None
         self._dense = dense
 
@@ -695,10 +651,6 @@ class SourceBase(ABC):
         return self._dense
 
     @property
-    def name(self):
-        return self._name
-
-    @property
     def rays(self):
         """If overridden, should not add any ops to the graph."""
         return self._rays
@@ -719,13 +671,13 @@ class PointSource(SourceBase):
         central_angle,
         angular_distribution,
         wavelengths,
-        name="PointSource",
+        name=None,
         dense=True,
         start_on_center=True,
         ray_length=1.0,
     ):
         super().__init__(name, dense)
-        with tf.name_scope(self._name) as scope:
+        with tf.name_scope(self.name) as scope:
             self._center = tf.cast(center, tf.float64)
             self._central_angle = tf.cast(central_angle, tf.float64)
             self._wavelengths = tf.cast(wavelengths, tf.float64)
@@ -839,13 +791,13 @@ class AngularSource(SourceBase):
         angular_distribution,
         base_point_distribution,
         wavelengths,
-        name="AngularSource",
+        name=None,
         dense=True,
         start_on_center=True,
         ray_length=1.0,
     ):
         super().__init__(name, dense)
-        with tf.name_scope(self._name) as scope:
+        with tf.name_scope(self.name) as scope:
             self._center = tf.cast(center, tf.float64)
             self._central_angle = tf.cast(central_angle, tf.float64)
             self._wavelengths = tf.cast(wavelengths, tf.float64)
@@ -977,7 +929,7 @@ class AngularSource(SourceBase):
 
     @property
     def base_points(self):
-        return (self._base_points_x, self._base_points_y)
+        return self._base_points_x, self._base_points_y
 
     @property
     def base_point_ranks(self):
@@ -1010,11 +962,11 @@ class AperatureSource(SourceBase):
         start_point_distribution,
         end_point_distribution,
         wavelengths,
-        name="AperatureSource",
+        name=None,
         dense=True,
     ):
         super().__init__(name, dense)
-        with tf.name_scope(self._name) as scope:
+        with tf.name_scope(self.name) as scope:
             self._wavelengths = tf.cast(wavelengths, tf.float64)
             self._start_point_distribution = start_point_distribution
             if self._start_point_distribution.needs_build:

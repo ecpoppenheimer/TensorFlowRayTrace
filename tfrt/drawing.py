@@ -182,9 +182,7 @@ class RayDrawer:
                 for start_x, start_y, end_x, end_y, *_ in self.rays
             ]
         )
-        self._line_collection.set_array(
-            self._wavelength_unit_factor * self.rays[:, 4]
-        )
+        self._line_collection.set_array(self._wavelength_unit_factor * self.rays[:, 4])
 
     @property
     def colormap(self):

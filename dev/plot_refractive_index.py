@@ -13,11 +13,11 @@ if __name__ == "__main__":
     min_wavelength = 310
     max_wavelength = 4600
     pointCount = 200
-    
+
     x = np.linspace(min_wavelength, max_wavelength, pointCount)
     wavelengths = tf.constant(x, dtype=tf.float64)
     n = materials.soda_lime(wavelengths)
-    
+
     with tf.Session() as session:
         y = session.run(n)
 

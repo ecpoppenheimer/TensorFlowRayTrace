@@ -271,7 +271,6 @@ class BasePointDistributionBase(ABC):
 
     """
 
-    @abstractmethod
     def __init__(self, name=None):
         """
         A constructor should not construct any tf ops, it should only store values
@@ -512,7 +511,7 @@ class AperaturePointBase(BasePointDistributionBase):
         distribution.  It will be called inside build, and must set self._ranks
 
         """
-        pass
+        raise NotImplementedError
 
     def build(self):
         """
@@ -609,7 +608,6 @@ class SourceBase(ABC):
 
     """
 
-    @abstractmethod
     def __init__(self, name=None, dense=True):
         """
         If a source is dense, that means that rays will be generated with every
@@ -633,7 +631,7 @@ class SourceBase(ABC):
         properties.
 
         """
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def _make_undense(self):
@@ -644,7 +642,7 @@ class SourceBase(ABC):
         generating the source, depending on whether dense is true or not.
 
         """
-        pass
+        raise NotImplementedError
 
     @property
     def is_dense(self):

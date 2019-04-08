@@ -50,24 +50,47 @@ class AngularDistributionBase(ABC):
         with tf.control_dependencies(self.angle_limit_validation_ops()):
         
         """
+        lower_limit = tf.cast(lower_limit, tf.float64)
+        upper_limit = tf.cast(upper_limit, tf.float64)
+        
+        self._max_angle = tf.cast(self._max_angle, tf.float64)
+        self._max_angle = tf.ensure_shape(
+            self._max_angle,
+            (),
+            name=f"{self._name}_max_angle_shape_check"
+        )
+        self._min_angle = tf.cast(self._min_angle, tf.float64)
+        self._min_angle = tf.ensure_shape(
+            self._min_angle,
+            (),
+            name=f"{self._name}_min_angle_shape_check"
+        )
+        self._sample_count = tf.cast(self._sample_count, tf.int64)
+        self._sample_count = tf.ensure_shape(
+            self._sample_count,
+            (),
+            name=f"{self._name}_sample_count_shape_check"
+        )
         return [
             tf.assert_greater_equal(
                 self._max_angle,
                 self._min_angle,
-                message=f"{self.__class__.__name__}: max_angle must be >= min_angle.",
+                message=f"{self._name}: max_angle must be >= min_angle.",
             ),
             tf.assert_greater_equal(
                 self._min_angle,
                 lower_limit,
-                message=f"{self.__class__.__name__}: min_angle must be >= "
-                f" {lower_limit}.",
+                message=f"{self._name}: min_angle must be >= {lower_limit}.",
             ),
             tf.assert_less_equal(
                 self._max_angle,
                 upper_limit,
-                message=f"{self.__class__.__name__}: max_angle must be <= "
-                f" {upper_limit}.",
+                message=f"{self._name}: max_angle must be <= {upper_limit}.",
             ),
+            tf.assert_positive(
+                self._sample_count,
+                message=f"{self._name}: sample_count must be > 0.",
+            )
         ]
 
     def _build_ranks(self):
@@ -125,8 +148,7 @@ class AngularDistributionBase(ABC):
         """
         if self._angles is None:
             raise RuntimeError(
-                f"{self.__class__.__name__}: attempted to access "
-                "angles before calling build."
+                f"{self._name}: attempted to access angles before calling build."
             )
         return self._angles
 
@@ -138,6 +160,10 @@ class AngularDistributionBase(ABC):
         
         """
         return self._ranks
+        
+    @property
+    def name(self):
+        return self._name
 
 class ManualAngleDistribution(AngularDistributionBase):
     """
@@ -161,8 +187,18 @@ class ManualAngleDistribution(AngularDistributionBase):
     def build(self):
         with tf.name_scope(self._name) as scope:
             self._angles = tf.cast(self._angles, tf.float64)
+            self._angles = tf.ensure_shape(
+                self._angles,
+                (None,),
+                name=f"{self._name}_angle_shape_check"
+            )
             if self._ranks is not None:
                 self._ranks = tf.cast(self._ranks, tf.float64)
+                self._ranks = tf.ensure_shape(
+                    self._ranks,
+                    (None,),
+                    name=f"{self._name}_rank_shape_check"
+                )
 
 class StaticUniformAngularDistribution(AngularDistributionBase):
     """
@@ -184,11 +220,13 @@ class StaticUniformAngularDistribution(AngularDistributionBase):
     def build(self):
         with tf.name_scope(self._name) as scope:
             with tf.control_dependencies(self._angle_limit_validation_ops(-PI, PI)):
-                self._angles = tf.cast(
-                    tf.linspace(self._min_angle, self._max_angle, self._sample_count),
-                    tf.float64,
-                )
-                self._build_ranks()
+                self._angles = tf.linspace(
+                    self._min_angle,
+                    self._max_angle,
+                    self._sample_count
+                ),
+            self._angles = tf.cast(self._angles, tf.float64)
+            self._build_ranks()
 
 
 class RandomUniformAngularDistribution(AngularDistributionBase):
@@ -335,6 +373,22 @@ class BasePointDistributionBase(ABC):
         
         """
         pass
+        
+    def validate_sample_count(self):
+        """
+        Convenience for checking that the sample count is valid:
+        Cast to int64, check that it is scalar, and ensure it is positive.
+        """
+        self._sample_count = tf.cast(self._sample_count, tf.int64)
+        self._sample_count = tf.ensure_shape(
+            self._sample_count,
+            (),
+            name=f"{self._name}_sample_count_shape_check"
+        )
+        return [tf.assert_positive(
+            self._sample_count,
+            message=f"{self._name}: sample_count must be > 0.",
+        )]
 
     @property
     def needs_build(self):
@@ -352,7 +406,7 @@ class BasePointDistributionBase(ABC):
         """
         if self._base_points is None:
             raise RuntimeError(
-                f"{self.__class__.__name__}: attempted to access "
+                f"{self._name}: attempted to access "
                 "base points before calling build."
             )
         return self._base_points
@@ -366,6 +420,10 @@ class BasePointDistributionBase(ABC):
         
         """
         return self._ranks
+        
+    @property
+    def name(self):
+        return self._name
 
 class ManualBasePointDistribution(BasePointDistributionBase):
     """
@@ -390,12 +448,27 @@ class ManualBasePointDistribution(BasePointDistributionBase):
         
     def build(self):
         with tf.name_scope(self._name) as scope:
-            self._base_points = (
-                tf.cast(self._x_points, tf.float64),
-                tf.cast(self._y_points, tf.float64)
+            self._x_points = tf.cast(self._x_points, tf.float64)
+            self._x_points = tf.ensure_shape(
+                self._x_points,
+                (None,),
+                name=f"{self._name}_x_points_shape_check"
             )
+            self._y_points = tf.cast(self._y_points, tf.float64)
+            self._y_points = tf.ensure_shape(
+                self._y_points,
+                (None,),
+                name=f"{self._name}_y_points_shape_check"
+            )
+            self._base_points = (self._x_points, self._y_points)
+            
             if self._ranks is not None:
                 self._ranks = tf.cast(self._ranks, tf.float64)
+                self._ranks = tf.ensure_shape(
+                    self._ranks,
+                    (None,),
+                    name=f"{self._name}_ranks_shape_check"
+                )
 
 class BeamPointBase(BasePointDistributionBase):
     """
@@ -445,7 +518,7 @@ class BeamPointBase(BasePointDistributionBase):
             self._central_angle = val
         else:
             raise RuntimeError(
-                f"{self.__class__.__name__}: Too late to set central_angle!  "
+                f"{self._name}: Too late to set central_angle!  "
                 "Build has already been called."
             )
 
@@ -458,13 +531,28 @@ class BeamPointBase(BasePointDistributionBase):
         
         """
         self._beam_start = tf.cast(self._beam_start, tf.float64)
+        self._beam_start = tf.ensure_shape(
+            self._beam_start,
+            (),
+            name=f"{self._name}_beam_start_shape_check"
+        )
         self._beam_end = tf.cast(self._beam_end, tf.float64)
+        self._beam_end = tf.ensure_shape(
+            self._beam_end,
+            (),
+            name=f"{self._name}_beam_end_shape_check"
+        )
         self._central_angle = tf.cast(self._central_angle, tf.float64)
+        self._central_angle = tf.ensure_shape(
+            self._central_angle,
+            (),
+            name=f"{self._name}_central_angle_shape_check"
+        )
         
-        validate_endpoints = tf.assert_less(
+        validate_endpoints = tf.assert_less_equal(
             self._beam_end,
             self._beam_start,
-            message=f"{self.__class__.__name__}: beam_end must be less than "
+            message=f"{self._name}: beam_end must be less than "
             f"beam_start.",
         )
 
@@ -505,9 +593,10 @@ class StaticUniformBeam(BeamPointBase):
     def build(self):
         with tf.name_scope(self._name) as scope:
             self._parametrize_beam()
-            self._ranks = tf.linspace(
-                self._min_rank, self._max_rank, self._sample_count
-            )
+            with tf.control_dependencies(validate_sample_count()):
+                self._ranks = tf.linspace(
+                    self._min_rank, self._max_rank, self._sample_count
+                )
             self._build_points()
 
 
@@ -527,9 +616,13 @@ class RandomUniformBeam(BeamPointBase):
     def build(self):
         with tf.name_scope(self._name) as scope:
             self._parametrize_beam()
-            self._ranks = tf.random_uniform(
-                (self._sample_count,), self._min_rank, self._max_rank, dtype=tf.float64
-            )
+            with tf.control_dependencies(self.validate_sample_count()):
+                self._ranks = tf.random_uniform(
+                    self._sample_count, 
+                    self._min_rank, 
+                    self._max_rank, 
+                    dtype=tf.float64
+                )
             self._build_points()
 
 
@@ -571,42 +664,25 @@ class AperaturePointBase(BasePointDistributionBase):
         """
         with tf.name_scope(self._name) as scope:
             self._start_point = tf.cast(self._start_point, tf.float64)
+            self._start_point = tf.ensure_shape(
+                self._start_point,
+                (2,),
+                name=f"{self._name}_start_point_shape_check"
+            )
             self._end_point = tf.cast(self._end_point, tf.float64)
+            self._end_point = tf.ensure_shape(
+                self._end_point,
+                (2,),
+                name=f"{self._name}_end_point_shape_check"
+            )
         
-            start_shape = tf.shape(self._start_point)
-            end_shape = tf.shape(self._end_point)
-            correct_shape = (2,)
+            start_x = self._start_point[0]
+            start_y = self._start_point[1]
+            end_x = self._end_point[0]
+            end_y = self._end_point[1]
 
-            validation_ops = [
-                tf.assert_equal(
-                    start_shape,
-                    correct_shape,
-                    message=f"{self.__class__.__name__}: start_point must have "
-                    f"shape exactly equal to (2,).",
-                ),
-                tf.assert_equal(
-                    end_shape,
-                    correct_shape,
-                    message=f"{self.__class__.__name__}: end_point must have "
-                    f"shape exactly equal to (2,).",
-                ),
-                tf.assert_scalar(
-                    self._sample_count,
-                    message=f"{self.__class__.__name__}: sample_count must be scalar.",
-                ),
-                tf.assert_positive(
-                    self._sample_count,
-                    message=f"{self.__class__.__name__}: sample_count must be > 0.",
-                ),  # Displays error message for -1, but not -10?!? :(
-            ]
-
-            with tf.control_dependencies(validation_ops):
-                start_x = self._start_point[0]
-                start_y = self._start_point[1]
-                end_x = self._end_point[0]
-                end_y = self._end_point[1]
-
-            self._build_ranks()
+            with tf.control_dependencies(validate_sample_count()):
+                self._build_ranks()
             self._base_points = (
                 start_x + self._ranks * (end_x - start_x),
                 start_y + self._ranks * (end_y - start_y),
@@ -631,7 +707,7 @@ class RandomUniformAperaturePoints(AperaturePointBase):
 
     def _build_ranks(self):
         self._ranks = tf.random_uniform(
-            (self._sample_count,), 0.0, 1.0, dtype=tf.float64
+            self._sample_count, 0.0, 1.0, dtype=tf.float64
         )
 
 
@@ -711,6 +787,10 @@ class SourceBase(ABC):
     def rays(self):
         """If overridden, should not add any ops to the graph."""
         return self._rays
+        
+    @property
+    def name(self):
+        return self._name
 
 
 class PointSource(SourceBase):

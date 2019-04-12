@@ -3,8 +3,7 @@ import pytest
 import tensorflow as tf
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="module")
 def session():
-    session = tf.Session()
-    yield session
-    session.close()
+    with tf.Session() as session:
+        yield session

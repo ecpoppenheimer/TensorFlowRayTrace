@@ -7,7 +7,6 @@ Classes to help make source light raysets that can be fed to the ray tracer.
 import math
 from abc import ABC, abstractmethod
 
-from scipy.special import erfinv
 import tensorflow as tf
 import numpy as np
 
@@ -165,7 +164,7 @@ class AngularDistributionBase(ABC):
     def name(self):
         return self._name
 
-class ManualAngleDistribution(AngularDistributionBase):
+class ManualAngularDistribution(AngularDistributionBase):
     """
     This class allows you to package a set of angles you calculated yourself into
     the format for use with a source, and does nothing except cast the inputs
@@ -180,7 +179,7 @@ class ManualAngleDistribution(AngularDistributionBase):
         ranks=None,
         name="ManualAngleDistribution"
     ):
-        super().__init__(name=name)
+        self._name = name
         self._angles = angles
         self._ranks = ranks
         
@@ -224,7 +223,7 @@ class StaticUniformAngularDistribution(AngularDistributionBase):
                     self._min_angle,
                     self._max_angle,
                     self._sample_count
-                ),
+                )
             self._angles = tf.cast(self._angles, tf.float64)
             self._build_ranks()
 
@@ -550,10 +549,10 @@ class BeamPointBase(BasePointDistributionBase):
         )
         
         validate_endpoints = tf.assert_less_equal(
-            self._beam_end,
             self._beam_start,
-            message=f"{self._name}: beam_end must be less than "
-            f"beam_start.",
+            self._beam_end,
+            message=f"{self._name}: beam_start must be less than "
+            f"beam_end.",
         )
 
         with tf.control_dependencies([validate_endpoints]):
@@ -593,7 +592,7 @@ class StaticUniformBeam(BeamPointBase):
     def build(self):
         with tf.name_scope(self._name) as scope:
             self._parametrize_beam()
-            with tf.control_dependencies(validate_sample_count()):
+            with tf.control_dependencies(self.validate_sample_count()):
                 self._ranks = tf.linspace(
                     self._min_rank, self._max_rank, self._sample_count
                 )
@@ -618,7 +617,7 @@ class RandomUniformBeam(BeamPointBase):
             self._parametrize_beam()
             with tf.control_dependencies(self.validate_sample_count()):
                 self._ranks = tf.random_uniform(
-                    self._sample_count, 
+                    tf.reshape(self._sample_count, (1,)),
                     self._min_rank, 
                     self._max_rank, 
                     dtype=tf.float64
@@ -681,7 +680,7 @@ class AperaturePointBase(BasePointDistributionBase):
             end_x = self._end_point[0]
             end_y = self._end_point[1]
 
-            with tf.control_dependencies(validate_sample_count()):
+            with tf.control_dependencies(self.validate_sample_count()):
                 self._build_ranks()
             self._base_points = (
                 start_x + self._ranks * (end_x - start_x),
@@ -707,7 +706,7 @@ class RandomUniformAperaturePoints(AperaturePointBase):
 
     def _build_ranks(self):
         self._ranks = tf.random_uniform(
-            self._sample_count, 0.0, 1.0, dtype=tf.float64
+            tf.reshape(self._sample_count, (1,)), 0.0, 1.0, dtype=tf.float64
         )
 
 
@@ -816,34 +815,49 @@ class PointSource(SourceBase):
         super().__init__(name, dense)
         with tf.name_scope(self._name) as scope:
             self._center = tf.cast(center, tf.float64)
+            self._center = tf.ensure_shape(
+                self._center,
+                (2,),
+                name=f"{self._name}_center_shape_check"
+            )
             self._central_angle = tf.cast(central_angle, tf.float64)
+            self._central_angle = tf.ensure_shape(
+                self._central_angle,
+                (),
+                name=f"{self._name}_central_angle_shape_check"
+            )
             self._wavelengths = tf.cast(wavelengths, tf.float64)
+            self._wavelengths = tf.ensure_shape(
+                self._wavelengths,
+                (None,),
+                name=f"{self._name}_wavelengths_shape_check"
+            )
 
             self._angular_distribution = angular_distribution
             if self._angular_distribution.needs_build:
                 self._angular_distribution.build()
+                
+            self._angles = tf.cast(self._angular_distribution.angles, tf.float64)
+            self._angles = tf.ensure_shape(
+                self._angles,
+                (None,),
+                name=f"{self._name}_angles_shape_check"
+            )
+            if self._angular_distribution.ranks is not None:
+                self._angle_ranks = tf.cast(self._angular_distribution.ranks, tf.float64)
+                self._angle_ranks = tf.ensure_shape(
+                    self._angle_ranks,
+                    (None,),
+                    name=f"{self._name}_angle_ranks_shape_check"
+                )
 
             if self._dense:
                 self._make_dense()
             else:
                 self._make_undense()
 
-            validation_ops = [
-                tf.assert_equal(
-                    tf.shape(self._center),
-                    (2,),
-                    message=f"{self.__class__.__name__}: Center must have shape "
-                    f"exactly equal to (2,).",
-                ),
-                tf.assert_scalar(
-                    self._central_angle,
-                    message=f"{self.__class__.__name__}: central_angle must be "
-                    f"scalar.",
-                ),
-            ]
-            with tf.control_dependencies(validation_ops):
-                ray_count = tf.shape(self._angles)
-                self._angles = self._angles + self._central_angle
+            ray_count = tf.shape(self._angles)
+            self._angles = self._angles + self._central_angle
             start_x = tf.broadcast_to(self._center[0], ray_count)
             start_y = tf.broadcast_to(self._center[1], ray_count)
             end_x = start_x + ray_length * tf.cos(self._angles)
@@ -859,9 +873,6 @@ class PointSource(SourceBase):
                 )
 
     def _make_dense(self):
-        self._angles = tf.cast(self._angular_distribution.angles, tf.float64)
-        self._angle_ranks = self._angular_distribution.ranks
-
         angles, wavelengths = tf.meshgrid(self._angles, self._wavelengths)
         if self._angle_ranks is not None:
             angle_ranks, _ = tf.meshgrid(self._angle_ranks, self._wavelengths)
@@ -871,9 +882,6 @@ class PointSource(SourceBase):
         self._wavelengths = tf.reshape(wavelengths, (-1,))
 
     def _make_undense(self):
-        self._angles = tf.cast(self._angular_distribution.angles, tf.float64)
-        self._angle_ranks = self._angular_distribution.ranks
-
         angle_shape = tf.shape(self._angles)
         wavelength_shape = tf.shape(self._wavelengths)
         validation_ops = [
@@ -930,14 +938,29 @@ class AngularSource(SourceBase):
         wavelengths,
         name="AngularSource",
         dense=True,
-        start_on_center=True,
+        start_on_base=True,
         ray_length=1.0,
     ):
         super().__init__(name, dense)
         with tf.name_scope(self._name) as scope:
             self._center = tf.cast(center, tf.float64)
+            self._center = tf.ensure_shape(
+                self._center,
+                (2,),
+                name=f"{self._name}_center_shape_check"
+            )
             self._central_angle = tf.cast(central_angle, tf.float64)
+            self._central_angle = tf.ensure_shape(
+                self._central_angle,
+                (),
+                name=f"{self._name}_central_angle_shape_check"
+            )
             self._wavelengths = tf.cast(wavelengths, tf.float64)
+            self._wavelengths = tf.ensure_shape(
+                self._wavelengths,
+                (None,),
+                name=f"{self._name}_wavelengths_shape_check"
+            )
 
             self._angular_distribution = angular_distribution
             if self._angular_distribution.needs_build:
@@ -955,32 +978,58 @@ class AngularSource(SourceBase):
             if self._base_point_distribution.needs_build:
                 self._base_point_distribution.build()
 
+            self._angles = tf.cast(self._angular_distribution.angles, tf.float64)
+            self._angles = tf.ensure_shape(
+                self._angles,
+                (None,),
+                name=f"{self._name}_angles_shape_check"
+            )
+            if self._angular_distribution.ranks is not None:
+                self._angle_ranks = tf.cast(self._angular_distribution.ranks, 
+                    tf.float64
+                )
+                self._angle_ranks = tf.ensure_shape(
+                    self._angle_ranks,
+                    (None,),
+                    name=f"{self._name}_angle_ranks_shape_check"
+                )
+            self._base_points_x, self._base_points_y = (
+                self.base_point_distribution.base_points
+            )
+            self._base_points_x = tf.cast(self._base_points_x, tf.float64)
+            self._base_points_x = tf.ensure_shape(
+                self._base_points_x,
+                (None,),
+                name=f"{self._name}_base_points_x_shape_check"
+            )
+            self._base_points_y = tf.cast(self._base_points_y, tf.float64)
+            self._base_points_y = tf.ensure_shape(
+                self._base_points_y,
+                (None,),
+                name=f"{self._name}_base_points_y_shape_check"
+            )
+            if self._base_point_distribution.ranks is not None:
+                self._base_point_ranks = tf.cast(
+                    self._base_point_distribution.ranks, tf.float64
+                )
+                self._base_point_ranks = tf.ensure_shape(
+                    self._base_point_ranks,
+                    (None,),
+                    name=f"{self._name}_base_point_ranks_shape_check"
+                )
+
             if self._dense:
                 self._make_dense()
             else:
                 self._make_undense()
 
-            validation_ops = [
-                tf.assert_equal(
-                    tf.shape(self._center),
-                    (2,),
-                    message=f"{self.__class__.__name__}: Center must have shape "
-                    f"exactly equal to (2,).",
-                ),
-                tf.assert_scalar(
-                    self._central_angle,
-                    message=f"{self.__class__.__name__}: central_angle must be "
-                    f"scalar.",
-                ),
-            ]
-            with tf.control_dependencies(validation_ops):
-                self._angles = self._angles + self._central_angle
+            self._angles = self._angles + self._central_angle
             start_x = self._center[0] + self._base_points_x
             start_y = self._center[1] + self._base_points_y
             end_x = start_x + ray_length * tf.cos(self._angles)
             end_y = start_y + ray_length * tf.sin(self._angles)
 
-            if start_on_center:
+            if start_on_base:
                 self._rays = tf.stack(
                     [start_x, start_y, end_x, end_y, self._wavelengths], axis=1
                 )
@@ -990,13 +1039,6 @@ class AngularSource(SourceBase):
                 )
 
     def _make_dense(self):
-        self._angles = tf.cast(self._angular_distribution.angles, tf.float64)
-        self._angle_ranks = self._angular_distribution.ranks
-        self._base_points_x, self._base_points_y = (
-            self.base_point_distribution.base_points
-        )
-        self._base_point_ranks = self._base_point_distribution.ranks
-
         angles, wavelengths, base_x = tf.meshgrid(
             self._angles, self._wavelengths, self._base_points_x
         )
@@ -1022,13 +1064,6 @@ class AngularSource(SourceBase):
         self._base_points_y = tf.reshape(base_y, (-1,))
 
     def _make_undense(self):
-        self._angles = tf.cast(self._angular_distribution.angles, tf.float64)
-        self._angle_ranks = self._angular_distribution.ranks
-        self._base_points_x, self._base_points_y = (
-            self.base_point_distribution.base_points
-        )
-        self._base_point_ranks = self._base_point_distribution.ranks
-
         angle_shape = tf.shape(self._angles)
         wavelength_shape = tf.shape(self._wavelengths)
         base_x_shape = tf.shape(self._base_points_x)
@@ -1108,6 +1143,11 @@ class AperatureSource(SourceBase):
         super().__init__(name, dense)
         with tf.name_scope(self._name) as scope:
             self._wavelengths = tf.cast(wavelengths, tf.float64)
+            self._wavelengths = tf.ensure_shape(
+                self._wavelengths,
+                (None,),
+                name=f"{self._name}_wavelengths_shape_check"
+            )
             self._start_point_distribution = start_point_distribution
             if self._start_point_distribution.needs_build:
                 self._start_point_distribution.build()
@@ -1115,10 +1155,43 @@ class AperatureSource(SourceBase):
             if self._end_point_distribution.needs_build:
                 self._end_point_distribution.build()
 
-            self._start_x, self._start_y = (self.start_point_distribution.base_points)
-            self._end_x, self._end_y = (self.end_point_distribution.base_points)
+            self._start_x, self._start_y = self.start_point_distribution.base_points
+            self._end_x, self._end_y = self.end_point_distribution.base_points
             self._start_ranks = self._start_point_distribution.ranks
             self._end_ranks = self._end_point_distribution.ranks
+            
+            self._start_x = tf.ensure_shape(
+                self._start_x,
+                (None,),
+                name=f"{self._name}_start_x_shape_check"
+            )
+            self._start_y = tf.ensure_shape(
+                self._start_y,
+                (None,),
+                name=f"{self._name}_start_y_shape_check"
+            )
+            self._end_x = tf.ensure_shape(
+                self._end_x,
+                (None,),
+                name=f"{self._name}_end_x_shape_check"
+            )
+            self._end_y = tf.ensure_shape(
+                self._end_y,
+                (None,),
+                name=f"{self._name}_end_y_shape_check"
+            )
+            if self._start_ranks is not None:
+                self._start_ranks = tf.ensure_shape(
+                    self._start_ranks,
+                    (None,),
+                    name=f"{self._name}_start_ranks_shape_check"
+                )
+            if self._end_ranks is not None:
+                self._end_ranks = tf.ensure_shape(
+                    self._end_ranks,
+                    (None,),
+                    name=f"{self._name}_end_ranks_shape_check"
+                )
 
             if self._dense:
                 self._make_dense()
@@ -1171,22 +1244,22 @@ class AperatureSource(SourceBase):
                 f"exactly as many start_x points as wavelengths.",
             ),
             tf.assert_equal(
-                start_x_shape,
+                start_y_shape,
                 wavelength_shape,
                 message=f"{self.__class__.__name__}: For un dense source, need "
-                f"exactly as many start_x points as wavelengths.",
+                f"exactly as many start_y points as wavelengths.",
             ),
             tf.assert_equal(
-                start_x_shape,
+                end_x_shape,
                 wavelength_shape,
                 message=f"{self.__class__.__name__}: For un dense source, need "
-                f"exactly as many start_x points as wavelengths.",
+                f"exactly as many end_x points as wavelengths.",
             ),
             tf.assert_equal(
-                start_x_shape,
+                end_y_shape,
                 wavelength_shape,
                 message=f"{self.__class__.__name__}: For un dense source, need "
-                f"exactly as many start_x points as wavelengths.",
+                f"exactly as many end_y points as wavelengths.",
             ),
         ]
         with tf.control_dependencies(validation_ops):

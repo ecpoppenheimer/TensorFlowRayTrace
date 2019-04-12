@@ -35,17 +35,17 @@ if __name__ == "__main__":
 
         # build the source rays
         start_points = sources.StaticUniformAperaturePoints(
-            (-1, -.5), (-1, .5), 5, name="StartPoints"
+            (-1, -0.5), (-1, 0.5), 5, name="StartPoints"
         )
         end_points = sources.ManualBasePointDistribution(
-            (-.5, -.4, -.3, -.4, -.5), (-.4, -.1, 0, .1, .4), name="EndPoints"
+            (-0.5, -0.4, -0.3, -0.4, -0.5), (-0.4, -0.1, 0, 0.1, 0.4), name="EndPoints"
         )
         source_rays = sources.AperatureSource(
             start_points,
             end_points,
             [drawing.YELLOW] * 5,
             name="AperatureSource",
-            dense=False
+            dense=False,
         )
 
         # Make an optical surface, so we can check that the rays are oriented

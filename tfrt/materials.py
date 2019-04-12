@@ -21,6 +21,7 @@ import tensorflow as tf
 
 # ------------------------------------------------------------------------------------
 
+
 def build_constant_material(n):
     """
     Call to build a material with constant refractive index.
@@ -44,7 +45,9 @@ def build_constant_material(n):
     """
     return lambda x: n * tf.ones_like(x)
 
+
 # ------------------------------------------------------------------------------------
+
 
 def acrylic(x):
     return tf.sqrt(
@@ -56,7 +59,8 @@ def acrylic(x):
         + 7.3417e14 * x ** -6
         - 4.5042e19 * x ** -8
     )
-    
+
+
 def crown_glass(x):
     return tf.sqrt(
         1
@@ -64,7 +68,8 @@ def crown_glass(x):
         + 1.24412303e-1 * x ** 2 / (x ** 2 - 2.69835916e4)
         + 8.27100531e-1 * x ** 2 / (x ** 2 - 1.00384588e8)
     )
-    
+
+
 def flint_glass(x):
     return tf.sqrt(
         1
@@ -72,7 +77,8 @@ def flint_glass(x):
         + 2.09073176e-1 * x ** 2 / (x ** 2 - 4.70450767e4)
         + 9.37357162e-1 * x ** 2 / (x ** 2 - 1.11886764e8)
     )
-    
+
+
 def fused_silica(x):
     return tf.sqrt(
         1
@@ -80,15 +86,19 @@ def fused_silica(x):
         + 4.079426e-1 * x ** 2 / (x ** 2 - 1.3512063e4)
         + 8.974794e-1 * x ** 2 / (x ** 2 - 9.7934002538e7)
     )
-    
+
+
 def polycarbonate(x):
     return tf.sqrt(1 + 1.4182e0 * x ** 2 / (x ** 2 - 2.1304e4))
-    
+
+
 def reflective(x):
     return tf.zeros_like(x)
-    
+
+
 def soda_lime(x):
     return 1.5130e0 - 3.169e-9 * x ** 2 + 3.962e3 * x ** -2
-    
+
+
 def vacuum(x):
     return tf.ones_like(x)

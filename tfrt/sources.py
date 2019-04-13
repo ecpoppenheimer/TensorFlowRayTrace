@@ -169,7 +169,7 @@ class ManualAngularDistribution(AngularDistributionBase):
     """
 
     def __init__(self, angles, ranks=None, name=None):
-        super().__init__(name=name)
+        self._name = name or f"{self.__class__.__name__}-{next(COUNTER)}"
         self._angles = angles
         self._ranks = ranks
 
@@ -392,7 +392,7 @@ class ManualBasePointDistribution(BasePointDistributionBase):
     """
 
     def __init__(self, x_points, y_points, ranks=None, name=None):
-        super().__init__(name=name)
+        self._name = name or f"{self.__class__.__name__}-{next(COUNTER)}"
         self._x_points = x_points
         self._y_points = y_points
         self._ranks = ranks
@@ -485,10 +485,9 @@ class BeamPointBase(BasePointDistributionBase):
         )
 
         validate_endpoints = tf.assert_less_equal(
-            self._beam_end,
             self._beam_start,
             self._beam_end,
-            message=f"{self._name}: beam_start must be less than " f"beam_end.",
+            message=f"{self._name}: beam_start must be <= beam_end.",
         )
 
         with tf.control_dependencies([validate_endpoints]):

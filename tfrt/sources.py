@@ -1,5 +1,62 @@
 """
-Classes to help make source light raysets that can be fed to the ray tracer.
+Classes to help make source light ray sets that can be fed to the ray tracer.
+
+The ray tracer requires as one of its inputs a tensor that encodes the light input to the system.  This tensor must be rank 2, whose first dimension can be of any size and indexes each ray, and whose second dimension must be of size >= 5, and whose first five elements are xStart, yStart, xEnd, yEnd, and wavelength.  Rays are defined as line segments between the two points, Start and End.  But they are interpreted as semi-infinite rays whose origin is Start and whose angle is set by End.  The length of a ray does not matter.  The ray tracer will add a few extra elements to each ray in its output that help track where the ray originated from and what surfaces it interacted with.  Ray sets with these extra elements can be fed to a second ray tracer without issue, the extra information will simply be ignored.  This is why the second dimension of a ray set is defined as having size >= 5, rather than size == 5.
+
+Since TensorFlow will automatically convert some python objects into tensors (so called tensor-like objects), there are multiple valid ways to generate starting ray sets for the ray tracer.  One issue is that TF by default interprets python floats as 32-bit floats, and the ray tracer requires its inputs to be 64-bit floats, so if you are building your ray sets with python logic it may be necessary to cast them.  A common pattern that I have used in the past to generate ray sets was to use a python list comprehension to build a nested list, and then cast it to a numpy array.  Example:
+
+startingRays = np.array(
+    [
+        [
+            0.0,
+            y,
+            -1.0,
+            y,
+            wavelength
+        ] for y in yValues for wavelength in wavelengths
+    ],
+    dtype=np.float64
+)
+
+This object can be fed directly to the ray tracer.  It is also possible to give the ray tracer a placeholder and feed rays at runtime.
+
+Though these ways of building a rayset are valid, this module has been provided to make ray set generation more easy and convenient.  The sources defined in this module automatically package the ray set, the data used to build it, and ray ranks, which can help define target locations when using an optimizer.  Most of the parameters in the class constructors in this module can accept tensors as inputs, to simplify building parameterized ray sets.  Some of these parameters (like source center) can even be used as optimization targets to, for instance, figure out at what location a ray has to strike the entrance aperture of an optic in order to pass through a specific location inside the optic.  Any parameter that can accept a tensor (and therefore can be parametric) is labeled as parametric in the constructor's documentation.  Any parameter which can only accept a python object will be labeled as fixed, and the behavior controlled by that parameter cannot be adjusted after object instantiation.
+
+There are three types of object defined in this module: Angular distributions, which describe the angle of rays in a ray set; base point distributions, which describe a point along the ray; and sources which describe ray sets and are the ultimate goal of this module.  Different sources accept different numbers of angular and base point distributions as parameters.
+
+There are three types of distributions: manual, static, and random.  
+
+Manual distributions are simply utilities that package user-defined data into the format used by sources.  This is a convenience for users who want to use a source partially defined by this module and partially defined by themselves (like the list comprehension and cast to numpy array example provided above).  Manual distributions do not do any kind of error checking on the data fed to them!
+
+Static distributions may be parametric, but they will yield the exact same ray set each time they are evaluated by a TF session (unless their parameters change).
+
+Random distributions are built out of TF random ops, and so will yield different rays each time they are evaluated, such as during optimization.  Be warned that if you desire to visualize starting rays during individual steps of optimization, if you are using a random distribution you will need to extract the ray set in the same session.run call where you run the optimization op, or else your visualization will not display rays that were actually used during optimization.
+
+Sources may be built either dense (the default) or not.  If a source is dense, it will generate a ray for each combination of elements in its distributions.  For instance, if you build a source and feed it 3 angles, 4 base points, and 5 wavelengths, a dense source will yield 3*4*5 = 60 rays.  If you build a source as un-dense, each distribution must have exactly the same number of elements, and the source will yield that many rays.  It is recommended that any source that uses a random distribution be un-dense (simply because that will make it more random) but this is not required.
+
+The objects defined in this module each take an optional name parameter in their constructor.  The name is used to define a name scope under which all ops added to the TF graph by the object are placed.  The desired effect of this is to make the graph visualization via TensorBoard cleaner.  By default a source will group the ops used to build a distribution inside its own group (under its own name scope) so that the source will appear in its entirety as a single node in TensorBoard.  If you do not want this behavior, you can call the distribution.build method to place the ops that build the distribution inside whatever name scope is currently active when the build method is called.  The expectation is that each distribution will be used only once, for a single source.  It is possible to share a distribution between each source, but if this is done, by default the distribution's ops will be grouped inside the source node of the source which is built first, and it will appear on TensorBoard that later sources have a dependency on the first source (through the shared distribution.)  In this case, it is probably cleaner to build the distribution manually before either source, so that it appears as its own group.
+
+Public Angular Distributions
+----------------------------
+ManualAngularDistribution
+StaticUniformAngularDistribution
+RandomUniformAngularDistribution
+StaticLambertianAngularDistribution
+RandomLambertianAngularDistribution
+
+Public Base Point Distributions
+-------------------------------
+ManualBasePointDistribution
+StaticUniformBeam
+RandomUniformBeam
+StaticUniformAperaturePoints
+RandomUniformAperaturePoints
+
+Sources
+-------
+Point Source
+Angular Source
+Aperature Source
 
 
 
@@ -22,6 +79,28 @@ class AngularDistributionBase(ABC):
     """
     Abstract implementation of an angular distribution, that defines the bare
     minimum interface that all angular distributions should implement.
+    
+    Public attributes
+    -----------------
+    angles : tf.float64 tensor of shape (none,)
+        The angles held by the distribution.
+    ranks : tf.float64 tensor of shape (none,) or None
+        A number that that describes the where each angle is relative to the whole
+        distribution, and can be useful for defining the target destination for each
+        ray.  Will be none if ranks were not defined for this distribution.
+    name : string
+        The name of the namespace under which all ops will be placed
+    
+    Public members
+    --------------
+    build()
+        Called to actually build the ops that generate this distribution.  Should
+        only be called once, usually by the source that consumes this distribution.  
+        Won't throw an error if it is called more than once, but it will add 
+        unnecessary ops to the TF graph and may orphan ops built by previous calls to 
+        build.
+    needs_build()
+        Returns true if the distribution needs to be built.
 
     """
 
@@ -160,11 +239,26 @@ class AngularDistributionBase(ABC):
 
 class ManualAngularDistribution(AngularDistributionBase):
     """
-    This class allows you to package a set of angles you calculated yourself into
-    the format for use with a source, and does nothing except cast the inputs
-    to tf.float64.  Can accept tensors or python objects.  Does no error checking.
-    Inputs should be 1-D tensor-like objects, and should all have the same length.
-    Ranks may be None.
+    Package any set of custom angles into a format compatible with a source.
+    
+    This class nothing except cast the inputs to tf.float64 and return an object that
+    is compatible with the sources defined in this module.  This is the quick and easy
+    way to get a custom angular distribution, but if you find yourself using a 
+    particular pattern often it might be worthwhile to write your own angular 
+    distribution class that inherets from AngularDistributionBase.
+    
+    Parameters
+    ----------
+    angles : tensor-like of floats with shape ~(None,), parametric
+    ranks : tensor-like of floats with shape ~(None,), parametric, optional
+    name : string, fixed, optional
+        The name of the namespace under which the cast and ensure shape nodes will be 
+        placed in the TF graph.
+        
+    Public interface
+    -----------------
+    See AngularDistributionBase for an explanation of the attributes and methods  
+    shared by all angular distributions.
 
     """
 
@@ -188,10 +282,29 @@ class ManualAngularDistribution(AngularDistributionBase):
 
 class StaticUniformAngularDistribution(AngularDistributionBase):
     """
-        For this source, rank will be normalized so that the most extreme angle
-        generated by the distribution (farthest from the center of the distribution)
-        will have |rank| == 1.
-
+    A set of angles that are uniformally distributed between two extrema.
+    
+    For this distribution, rank will be normalized so that the most extreme angle
+    generated by the distribution (farthest from the center of the distribution)
+    will have |rank| == 1.
+    
+    Parameters
+    ----------
+    min_angle : scalar float tensor-like, parametric
+        The minimum angle to include in the distribution.
+    max_angle : scalar float tensor-like, parametric
+        The maximum angle to include in the distribution.
+    sample_count : scalar int tensor-like, parametric
+        The number of angles to return in the distribution.
+    name : string, fixed, optional, fixed
+        The name of the namespace under which the cast and ensure shape nodes will be 
+        placed in the TF graph.
+        
+    Public interface
+    -----------------
+    See AngularDistributionBase for an explanation of the attributes and methods  
+    shared by all angular distributions.
+        
     """
 
     def __init__(self, min_angle, max_angle, sample_count, name=None):
@@ -209,10 +322,29 @@ class StaticUniformAngularDistribution(AngularDistributionBase):
 
 class RandomUniformAngularDistribution(AngularDistributionBase):
     """
-        For this source, rank will be normalized so that the most extreme angle
-        generated by the distribution (farthest from the center of the distribution)
-        will have |rank| == 1.
-
+    A set of angles that are randomly uniformally sampled between two extrema.
+    
+    For this distribution, rank will be normalized so that the most extreme angle
+    generated by the distribution (farthest from the center of the distribution)
+    will have |rank| == 1.
+    
+    Parameters
+    ----------
+    min_angle : scalar float tensor-like, parametric
+        The minimum allowed angle that can be included in the distribution.
+    max_angle : scalar float tensor-like, parametric
+        The maximum allowed angle that can be included in the distribution.
+    sample_count : scalar int tensor-like, parametric
+        The number of angles to return in the distribution.
+    name : string, fixed, optional, fixed
+        The name of the namespace under which the cast and ensure shape nodes will be 
+        placed in the TF graph.
+        
+    Public interface
+    -----------------
+    See AngularDistributionBase for an explanation of the attributes and methods  
+    shared by all angular distributions.
+        
     """
 
     def __init__(self, min_angle, max_angle, sample_count, name=None):
@@ -232,10 +364,30 @@ class RandomUniformAngularDistribution(AngularDistributionBase):
 
 class StaticLambertianAngularDistribution(AngularDistributionBase):
     """
-        For this source, rank will be the sine of the angle, so that the maximum rank
-        will have magnitude sin(max(abs(angle_limits))).  Rank will be distributed
-        uniformally.
-
+    A set of angles spanning two extrema whose distribution follows a Lambertian
+    (cosine) distribution around zero.
+    
+    For this source, rank will be the sine of the angle, so that the maximum rank
+    will have magnitude sin(max(abs(angle_limits))).  Rank will be distributed
+    uniformally.
+    
+    Parameters
+    ----------
+    min_angle : scalar float tensor-like, parametric
+        The minimum angle to include in the distribution.
+    max_angle : scalar float tensor-like, parametric
+        The maximum angle to include in the distribution.
+    sample_count : scalar int tensor-like, parametric
+        The number of angles to return in the distribution.
+    name : string, fixed, optional, fixed
+        The name of the namespace under which the cast and ensure shape nodes will be 
+        placed in the TF graph.
+        
+    Public interface
+    -----------------
+    See AngularDistributionBase for an explanation of the attributes and methods  
+    shared by all angular distributions.
+        
     """
 
     def __init__(self, min_angle, max_angle, sample_count, name=None):
@@ -259,10 +411,30 @@ class StaticLambertianAngularDistribution(AngularDistributionBase):
 
 class RandomLambertianAngularDistribution(AngularDistributionBase):
     """
-        For this source, rank will be the sine of the angle, so that the maximum rank
-        will have magnitude sin(max(abs(angle_limits))).  Rank will be distributed
-        uniformally.
-
+    A set of angles randomly sampling from a Lambertian (cosine) distribution around 
+    zero and between two extrema.
+    
+    For this source, rank will be the sine of the angle, so that the maximum rank
+    will have magnitude sin(max(abs(angle_limits))).  Rank will be distributed
+    uniformally.
+    
+    Parameters
+    ----------
+    min_angle : scalar float tensor-like, parametric
+        The minimum allowed angle that can be included in the distribution.
+    max_angle : scalar float tensor-like, parametric
+        The maximum allowed angle that can be included in the distribution.
+    sample_count : scalar int tensor-like, parametric
+        The number of angles to return in the distribution.
+    name : string, fixed, optional, fixed
+        The name of the namespace under which the cast and ensure shape nodes will be 
+        placed in the TF graph.
+        
+    Public interface
+    -----------------
+    See AngularDistributionBase for an explanation of the attributes and methods  
+    shared by all angular distributions.
+        
     """
 
     def __init__(self, min_angle, max_angle, sample_count, name=None):
@@ -290,8 +462,29 @@ class RandomLambertianAngularDistribution(AngularDistributionBase):
 class BasePointDistributionBase(ABC):
     """
     Abstract implementation of a base point distribution, which defines the bare
-    minimum interface that all base point distributions should implement.  There is
-    much less here because I envision this class being much more diverse.
+    minimum interface that all base point distributions should implement.
+    
+    Public attributes
+    -----------------
+    base_points : 2-tuple of tf.float64 tensor of shape (none,)
+        The x and y coordinates of the base points represented by the distribution
+    ranks : tf.float64 tensor of shape (none,) or None
+        A number that that describes where each base point is relative to the 
+        whole distribution, and can be useful for defining the target destination for 
+        each ray.  Will be none if ranks were not defined for this distribution.
+    name : string
+        The name of the namespace under which all ops will be placed
+    
+    Public members
+    --------------
+    build()
+        Called to actually build the ops that generate this distribution.  Should
+        only be called once, usually by the source that consumes this distribution.  
+        Won't throw an error if it is called more than once, but it will add 
+        unnecessary ops to the TF graph and may orphan ops built by previous calls to 
+        build.
+    needs_build()
+        Returns true if the distribution needs to be built.
 
     """
 
@@ -333,7 +526,7 @@ class BasePointDistributionBase(ABC):
         """
         raise NotImplementedError
 
-    def validate_sample_count(self):
+    def _validate_sample_count(self):
         """
         Convenience for checking that the sample count is valid:
         Cast to int64, check that it is scalar, and ensure it is positive.
@@ -383,11 +576,28 @@ class BasePointDistributionBase(ABC):
 
 class ManualBasePointDistribution(BasePointDistributionBase):
     """
-    This class allows you to package a set of points you calculated yourself into
-    the format for use with a source, and does nothing except cast the inputs
-    to tf.float64.  Can accept tensors or python objects.  Does no error checking.
-    Inputs should be 1-D tensor-like objects, and should all have the same length.
-    Ranks may be None.
+    Package any set of custom base points into a format compatible with a source.
+    
+    This class nothing except cast the inputs to tf.float64 and return an object that
+    is compatible with the sources defined in this module.  This is the quick and easy
+    way to get a custom base point distribution, but if you find yourself using a 
+    particular pattern often it might be worthwhile to write your own base point 
+    distribution class that inherets from one of the abstract base point distribution
+    classes.
+    
+    Parameters
+    ----------
+    x_points : tensor-like of floats with shape ~(None,), parametric
+    y_points : tensor-like of floats with shape ~(None,), parametric
+    ranks : tensor-like of floats with shape ~(None,), parametric, optional
+    name : string, fixed, optional
+        The name of the namespace under which the cast and ensure shape nodes will be 
+        placed in the TF graph.
+        
+    Public interface
+    -----------------
+    See BasePointDistributionBase for an explanation of the attributes and methods  
+    shared by all base point distributions.
 
     """
 
@@ -418,8 +628,10 @@ class ManualBasePointDistribution(BasePointDistributionBase):
 
 class BeamPointBase(BasePointDistributionBase):
     """
-    Base class for beam-type base points distributions, which are defined by an angle,
-    central_angle, and two distances that denote the width of the beam perpendicular
+    Base points that can be used to define a beam.
+    
+    Base class for beam-type base point distributions, which are defined by a
+    central_angle and two distances that denote the width of the beam perpendicular
     to the angle.  The coordinates returned by beams will be relative to the origin
     (so they should be interpreted as relative coordinates).  The base points will
     lie along a line perpendicular to central_angle, and will extend outward by the
@@ -437,7 +649,29 @@ class BeamPointBase(BasePointDistributionBase):
 
     The rank generated by this distribution will have its zero at the relative origin
     of the beam, and will have magnitude 1 for the point(s) farthest from the origin.
-
+    
+    Public attributes
+    -----------------
+    base_points : 2-tuple of tf.float64 tensor of shape (none,)
+        The x and y coordinates of the base points represented by the distribution
+    ranks : tf.float64 tensor of shape (none,) or None
+        A number that that describes where each base point is relative to the 
+        whole distribution, and can be useful for defining the target destination for 
+        each ray.  Will be none if ranks were not defined for this distribution.
+    name : string
+        The name of the namespace under which all ops will be placed
+    central_angle : scalar tf.float64 tensor
+    
+    Public members
+    --------------
+    build()
+        Called to actually build the ops that generate this distribution.  Should
+        only be called once, usually by the source that consumes this distribution.  
+        Won't throw an error if it is called more than once, but it will add 
+        unnecessary ops to the TF graph and may orphan ops built by previous calls to 
+        build.
+    needs_build()
+        Returns true if the distribution needs to be built.
     """
 
     def __init__(
@@ -516,17 +750,37 @@ class BeamPointBase(BasePointDistributionBase):
 
 
 class StaticUniformBeam(BeamPointBase):
-    def __init__(
-        self, beam_start, beam_end, sample_count, name=None, central_angle=0.0
-    ):
-        super().__init__(
-            beam_start, beam_end, sample_count, name=name, central_angle=central_angle
-        )
+    """
+    A set of base points uniformally spread across the width of a beam.
+        
+    Parameters
+    ----------
+    beam_start : scalar float tensor-like, parametric
+        The width of the lower half of the beam, relative to its center.
+    beam_start : scalar float tensor-like, parametric
+        The width of the upper half of the beam, relative to its center.  Must be >=
+        beam_start.
+    sample_count : scalar int tensor-like, parametric
+        The number of angles to return in the distribution.
+    name : string, fixed, optional, fixed
+        The name of the namespace under which the cast and ensure shape nodes will be 
+        placed in the TF graph.
+    central_angle : scalar float tensor-like, optional, parametric
+        The angle where the beam points, the points will be perpendicular to this 
+        angle.  Though you may set it here for most use cases don't; it may be
+        overridden by the source that consumes this distribution.
+        
+    Public interface
+    -----------------
+    See BeamPointBase for an explanation of the attributes and methods  
+    shared by all beam distributions.
+        
+    """
 
     def build(self):
         with tf.name_scope(self._name) as scope:
             self._parametrize_beam()
-            with tf.control_dependencies(self.validate_sample_count()):
+            with tf.control_dependencies(self._validate_sample_count()):
                 self._ranks = tf.linspace(
                     self._min_rank, self._max_rank, self._sample_count
                 )
@@ -534,17 +788,36 @@ class StaticUniformBeam(BeamPointBase):
 
 
 class RandomUniformBeam(BeamPointBase):
-    def __init__(
-        self, beam_start, beam_end, sample_count, name=None, central_angle=0.0
-    ):
-        super().__init__(
-            beam_start, beam_end, sample_count, name=name, central_angle=central_angle
-        )
-
+    """
+    A set of base points uniformally randomly sampled across the width of a beam.
+        
+    Parameters
+    ----------
+    beam_start : scalar float tensor-like, parametric
+        The width of the lower half of the beam, relative to its center.
+    beam_start : scalar float tensor-like, parametric
+        The width of the upper half of the beam, relative to its center.  Must be >=
+        beam_start.
+    sample_count : scalar int tensor-like, parametric
+        The number of angles to return in the distribution.
+    name : string, fixed, optional, fixed
+        The name of the namespace under which the cast and ensure shape nodes will be 
+        placed in the TF graph.
+    central_angle : scalar float tensor-like, optional, parametric
+        The angle where the beam points, the points will be perpendicular to this 
+        angle.  Though you may set it here for most use cases don't; it may be
+        overridden by the source that consumes this distribution.
+        
+    Public interface
+    -----------------
+    See BeamPointBase for an explanation of the attributes and methods  
+    shared by all beam distributions.
+        
+    """
     def build(self):
         with tf.name_scope(self._name) as scope:
             self._parametrize_beam()
-            with tf.control_dependencies(self.validate_sample_count()):
+            with tf.control_dependencies(self._validate_sample_count()):
                 self._ranks = tf.random_uniform(
                     tf.reshape(self._sample_count, (1,)),
                     self._min_rank,
@@ -556,14 +829,38 @@ class RandomUniformBeam(BeamPointBase):
 
 class AperaturePointBase(BasePointDistributionBase):
     """
+    Point distribution spanning two end points, for filling an aperature.
+    
     Base class for aperature-type base point distributions, which are defined by two
     2-D points that define the edges of the aperature.  This class generates base
     points along the line segment bounded by the end points.  Convenient when you want
     to specify absolute positions for the edges of the source, rather than relative
     ones.
 
-    A point with rank zero will be located at the start point, and a point with rank
-    one will be located at the end point.
+    A point with rank zero will be located at the start point, and rank will increase
+    along the line till it reaches one at the end point.
+    
+    Public attributes
+    -----------------
+    base_points : 2-tuple of tf.float64 tensor of shape (none,)
+        The x and y coordinates of the base points represented by the distribution
+    ranks : tf.float64 tensor of shape (none,) or None
+        A number that that describes where each base point is relative to the 
+        whole distribution, and can be useful for defining the target destination for 
+        each ray.  Will be none if ranks were not defined for this distribution.
+    name : string
+        The name of the namespace under which all ops will be placed
+    
+    Public members
+    --------------
+    build()
+        Called to actually build the ops that generate this distribution.  Should
+        only be called once, usually by the source that consumes this distribution.  
+        Won't throw an error if it is called more than once, but it will add 
+        unnecessary ops to the TF graph and may orphan ops built by previous calls to 
+        build.
+    needs_build()
+        Returns true if the distribution needs to be built.
 
     """
 
@@ -603,7 +900,7 @@ class AperaturePointBase(BasePointDistributionBase):
             end_x = self._end_point[0]
             end_y = self._end_point[1]
 
-            with tf.control_dependencies(self.validate_sample_count()):
+            with tf.control_dependencies(self._validate_sample_count()):
                 self._build_ranks()
             self._base_points = (
                 start_x + self._ranks * (end_x - start_x),
@@ -612,17 +909,53 @@ class AperaturePointBase(BasePointDistributionBase):
 
 
 class StaticUniformAperaturePoints(AperaturePointBase):
-    def __init__(self, start_point, end_point, sample_count, name=None):
-        super().__init__(start_point, end_point, sample_count, name=name)
-
+    """
+    A set of base points uniformally spaced between two end points.
+        
+    Parameters
+    ----------
+    start_point : float tensor-like of shape (2,), parametric
+        The start point of the distribution, in absolute coordinates.
+    end_point : float tensor-like of shape (2,), parametric
+        The end point of the distribution, in absolute coordinates.
+    sample_count : scalar int tensor-like, parametric
+        The number of angles to return in the distribution.
+    name : string, fixed, optional, fixed
+        The name of the namespace under which the cast and ensure shape nodes will be 
+        placed in the TF graph.
+        
+    Public interface
+    -----------------
+    See AperaturePointBase for an explanation of the attributes and methods  
+    shared by all aperature distributions.
+        
+    """
     def _build_ranks(self):
         self._ranks = tf.cast(tf.linspace(0.0, 1.0, self._sample_count), tf.float64)
 
 
 class RandomUniformAperaturePoints(AperaturePointBase):
-    def __init__(self, start_point, end_point, sample_count, name=None):
-        super().__init__(start_point, end_point, sample_count, name=name)
-
+    """
+    A set of base points uniformally randomly sampled between two end points.
+        
+    Parameters
+    ----------
+    start_point : float tensor-like of shape (2,), parametric
+        The start point of the distribution, in absolute coordinates.
+    end_point : float tensor-like of shape (2,), parametric
+        The end point of the distribution, in absolute coordinates.
+    sample_count : scalar int tensor-like, parametric
+        The number of angles to return in the distribution.
+    name : string, fixed, optional, fixed
+        The name of the namespace under which the cast and ensure shape nodes will be 
+        placed in the TF graph.
+        
+    Public interface
+    -----------------
+    See AperaturePointBase for an explanation of the attributes and methods  
+    shared by all aperature distributions.
+        
+    """
     def _build_ranks(self):
         self._ranks = tf.random_uniform(
             tf.reshape(self._sample_count, (1,)), 0.0, 1.0, dtype=tf.float64
@@ -708,10 +1041,60 @@ class SourceBase(ABC):
 
 class PointSource(SourceBase):
     """
-    This class accepts a location, an angular distribution and central angle, and a
-    set of wavelengths to make rays that eminate from a single point in space.  The
-    angular distribution is interpreted as angles relative to central_angle, but they
-    can be interpreted as absolute angles simply by setting central_angle to zero.
+    Rays eminating from a single point.
+    
+    Parameters
+    ----------
+    center : float tensor-like of shape (2,), parametric
+        The point from which all rays eminate.
+    central_angle : scalar float tensor-like, parametric
+        The angle of the center of the angular distribution.  The angles in the
+        angular distribution will be relative to this value.
+    angular_distribution
+        The angles used for the rays.  The angular distribution is interpreted as 
+        angles relative to central_angle, but they can be interpreted as absolute 
+        angles by setting central_angle to zero.
+    wavelengths : 1-D float tensor-like, parametric
+        Which wavelengths of light to use for the rays.  Units are nm.
+    name : string, fixed, optional, fixed
+        The name of the namespace under which the cast and ensure shape nodes will be 
+        placed in the TF graph.
+    dense : bool, fixed, optional
+        If true, will take every combination of angle in the angular distribution and
+        wavelength in wavelengths.  If false, will match the angles and wavelengths 
+        1:1, which requires that angular_distribution and wavelengths have the same
+        number of elements.
+    start_on_center : bool, fixed, optional
+        If true, rays will be oriented such that their start point is center and the
+        rays propigate outward, like a typical point source.  If false, the rays are
+        all flipped a half-turn, so that their endpoint lies on center to create a 
+        converging ray set.  Useful for generating a source with a known angular size
+        that illuminates only a single point on the optic at a time, but can be scanned
+        across the surface by making center a variable.
+    ray_length : scalar float tensor-like, parametric, optional
+        The length given to all the rays generated by this source.  Ray length doesn't
+        really matter to the ray tracer, since rays are interpreted as semi-infinite,
+        so this setting is mostly for the purposes of display.
+        
+    Public attributes
+    -----------------
+    rays : tf.float64 tensor of shape (None, 5)
+        The rays representing this source, the first dimension indexes each ray, and 
+        the second is (x_start, y_start, x_end, y_end, wavelength).
+    name : string
+        The name given to this source
+    is_dense : bool
+        Whether the source was built as dense or not
+    angles : 1-D tf.float64 tensor
+        The absolute angle of each ray.  Will be expanded if the source is dense.  Will
+        differ from the angles in the distribution if central_angle is not zero.
+    angle_ranks : 1-D float64 tensor
+        The angular rank of each ray.  Will be expanded if the source is dense.  
+    wavelengths : 1-D float64 tensor
+        The wavelength of each ray.  Will be expanded if the source is dense.
+    angular_distribution
+        A handle to the angular distribution used to create this source.  It won't be
+        expanded if the source is dense.
 
     """
 
@@ -824,11 +1207,13 @@ class PointSource(SourceBase):
 
 class AngularSource(SourceBase):
     """
-    This class accepts a location, the center of the source; an angle, the central
-    angle that the source points to; an angular distribution of angles relative to
-    the central_angle at which to point rays; a base_point_distribution, a set of
-    points at which to start the rays; and a set of wavelengths.
-
+    Rays eminating from multiple points.
+    
+    This source can be used to generate a beam if given a beam point distribution, or 
+    it can act like light filling an entrance aperture if given an aperature point 
+    distribution.  The light may have an angular spread, to represent a source of
+    nonzero size.
+    
     The source will attempt to feed central_angle to the base_point_distribution, in
     case it is a beam-type distribution, but if the distribution does not accept a
     central_angle, it will do nothing.  However, setting the central_angle requires
@@ -836,7 +1221,78 @@ class AngularSource(SourceBase):
     case, but it will do nothing silently.  If you need to feed an already built
     base_point_distribution that requires a central_angle, you will need to manually
     feed that central_angle to the base_point_distribution's constructor.
-
+    
+    Parameters
+    ----------
+    center : float tensor-like of shape (2,), parametric
+        The rays will originate from the sum of the base points and center.  So if a 
+        beam base point distribution is fed (whose points are interpreted as relative)
+        then center will set the center of the beam, as expected.  But an aperature
+        base point distribution is interpreted as a set of absolute points, so in this
+        case you should set center to [0, 0].  If you use a non-zero center with an
+        aperature base point distribution (or any other base point distribution that
+        uses absolute points) then the value of center will have the effect of adding
+        an offset to the base points.
+    central_angle : scalar float tensor-like, parametric
+        The angle of the center of the angular distribution.  The angles in the
+        angular distribution will be relative to this value.
+    angular_distribution
+        The angles used for the rays.  The angular distribution is interpreted as 
+        angles relative to central_angle, but they can be interpreted as absolute 
+        angles by setting central_angle to zero.
+    base_point_distribution
+        Points that will be used for one of the endpoints of the rays.  Values are 
+        interpreted as relative to center.
+    wavelengths : 1-D float tensor-like, parametric
+        Which wavelengths of light to use for the rays.  Units are nm.
+    name : string, fixed, optional, fixed
+        The name of the namespace under which the cast and ensure shape nodes will be 
+        placed in the TF graph.
+    dense : bool, fixed, optional
+        If true, will take every combination of angle in the angular distribution, 
+        base point in the base point distribution, and wavelength in wavelengths.  If 
+        false, will match one of each 1:1:1, which requires that all three have the
+        same number of elements.
+    start_on_center : bool, fixed, optional
+        If true, rays will be oriented such that their start points lie on the base 
+        ponits and the rays propigate outward.  If false, the rays are all flipped a 
+        half-turn, so that their endpoint lies on center to create a converging ray 
+        set.  In my opinion, using false gives the better display result when using an 
+        aperature source.  Also useful for generating a source with a known angular 
+        size that illuminates only a small portion on the optic at a time, but can be 
+        scanned across the surface by making center a variable.
+    ray_length : scalar float tensor-like, parametric, optional
+        The length given to all the rays generated by this source.  Ray length doesn't
+        really matter to the ray tracer, since rays are interpreted as semi-infinite,
+        so this setting is mostly for the purposes of display.
+        
+    Public attributes
+    -----------------
+    rays : tf.float64 tensor of shape (None, 5)
+        The rays representing this source, the first dimension indexes each ray, and 
+        the second is (x_start, y_start, x_end, y_end, wavelength).
+    name : string
+        The name given to this source
+    is_dense : bool
+        Whether the source was built as dense or not
+    angles : 1-D tf.float64 tensor
+        The absolute angle of each ray.  Will be expanded if the source is dense.  Will
+        differ from the angles in the distribution if central_angle is not zero.
+    angle_ranks : 1-D float64 tensor
+        The angular rank of each ray.  Will be expanded if the source is dense.  
+    base_points : 2-tuple of 1-D float64 tensor
+        The x and y coordinates of the base points.  Will be expanded if the source is 
+        dense.  
+    base_point_ranks : 1-D float64 tensor
+        The base point rank of each ray.  Will be expanded if the source is dense.
+    wavelengths : 1-D float64 tensor
+        The wavelength of each ray.  Will be expanded if the source is dense.
+    angular_distribution
+        A handle to the angular distribution used to create this source.  It won't be
+        expanded if the source is dense.
+    base_point_distribution
+        A handle to the base point distribution used to create this source.  It won't 
+        be expanded if the source is dense.
     """
 
     def __init__(
@@ -1026,6 +1482,8 @@ class AngularSource(SourceBase):
 
 class AperatureSource(SourceBase):
     """
+    A set of rays that span two sets of endpoints.
+    
     This source does not use an angular distribution, and instead makes rays between
     two sets of points.  Useful if you know your input light is bounded by two
     apertures, and you don't want to calculate angles.
@@ -1034,6 +1492,50 @@ class AperatureSource(SourceBase):
     because there is no angle, and this source isn't expected to be used with
     beam distributions.  But if you feed your own central_angle to the distribution,
     you can still use a beam point distribution with this class.
+    
+    Parameters
+    ----------
+    start_point_distribution
+        Points that will be used for the start point of the rays.
+    end_point_distribution
+        Points that will be used for the end point of the rays.
+    wavelengths : 1-D float tensor-like, parametric
+        Which wavelengths of light to use for the rays.  Units are nm.
+    name : string, fixed, optional, fixed
+        The name of the namespace under which the cast and ensure shape nodes will be 
+        placed in the TF graph.
+    dense : bool, fixed, optional
+        If true, will take every combination of start and end points.  If 
+        false, will match one of each 1:1, which requires that both have the
+        same number of elements.
+        
+    Public attributes
+    -----------------
+    rays : tf.float64 tensor of shape (None, 5)
+        The rays representing this source, the first dimension indexes each ray, and 
+        the second is (x_start, y_start, x_end, y_end, wavelength).
+    name : string
+        The name given to this source
+    is_dense : bool
+        Whether the source was built as dense or not
+    start_points : 2-tuple of 1-D float64 tensor
+        The x and y coordinates of the start points.  Will be expanded if the source 
+        is dense.  
+    start_point_ranks : 1-D float64 tensor
+        The start point rank of each ray.  Will be expanded if the source is dense.
+    end_points : 2-tuple of 1-D float64 tensor
+        The x and y coordinates of the end points.  Will be expanded if the source 
+        is dense.  
+    end_point_ranks : 1-D float64 tensor
+        The end point rank of each ray.  Will be expanded if the source is dense.
+    wavelengths : 1-D float64 tensor
+        The wavelength of each ray.  Will be expanded if the source is dense.
+    start_point_distribution
+        A handle to the base point distribution of the start points.  It won't 
+        be expanded if the source is dense.
+    end_point_distribution
+        A handle to the base point distribution of the end points.  It won't 
+        be expanded if the source is dense.
 
     """
 

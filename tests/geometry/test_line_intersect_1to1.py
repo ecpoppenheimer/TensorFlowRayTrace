@@ -27,7 +27,7 @@ def test_intersecting_lines(session, count=100):
     second_line = np.concatenate((second_start, second_end), axis=1)
     
     # extract the intersections.  They should be equal to the common point
-    (x, y), valid_intersection, u, v = geometry.line_intersect_1_to_1(
+    (x, y), valid_intersection, u, v = geometry.line_intersect_1to1(
         first_line, second_line
     )
     

@@ -43,3 +43,68 @@ def test_intersecting_lines(session, count=100):
     distance = tf.sqrt((x-common_x)**2 + (y-common_y)**2)
     max_distance = tf.reduce_max(distance)
     assert session.run(max_distance) < 1e-4
+
+@pytest.mark.parametrize(
+    "first_line,second_line,intersections",
+    [
+        (
+            [[0.0, 0.0, 1.0, 0.0], [1.0, 0.0, 1.0, 1.0]],
+            [[0.0, 0.0, 0.0, 1.0], [0.0, 1.0, 1.0, 1.0]],
+            [[0.0, 1.0], [0.0, 1.0]]
+        )
+    ]
+)    
+def test_specific_cases(session, first_line, second_line, intersections):
+    (x, y), valid_intersection, u, v = geometry.line_intersect_1to1(
+        first_line, second_line
+    )
+    all_valid = tf.reduce_all(valid_intersection)
+    assert session.run(all_valid)
+    distance = tf.sqrt((x-intersections[:][0])**2 + (y-intersections[:][1])**2)
+    max_distance = tf.reduce_max(distance)
+    assert session.run(max_distance) < 1e-4
+
+@pytest.mark.parametrize(
+    "first_line,second_line,intersections",
+    [
+        pytest.param(
+            [[0.0, 0.0, 1.0, 0.0]],
+            [[0.0, 1.0, 0.0, 1.0]],
+            [[0.0], [0.0]],
+            marks=pytest.mark.xfail
+        ),
+        pytest.param(
+            [[0.0, 0.0, 0.0, 1.0]],
+            [[1.0, 0.0, 1.0, 1.0]],
+            [[1.0], [1.0]],
+            marks=pytest.mark.xfail
+        ),
+        pytest.param(
+            [[0.0, 0.0, 1.0, 1.0]],
+            [[0.0, 1.0, 1.0, 2.0]],
+            [[0.0], [0.0]],
+            marks=pytest.mark.xfail
+        )
+    ]
+)       
+def test_parallel_cases(session, first_line, second_line, intersections):
+    (x, y), valid_intersection, u, v = geometry.line_intersect_1to1(
+        first_line, second_line
+    )
+    all_valid = tf.reduce_all(valid_intersection)
+    assert session.run(all_valid)
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    

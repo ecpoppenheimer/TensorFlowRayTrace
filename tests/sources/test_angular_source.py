@@ -198,8 +198,8 @@ def test_dense_angular_source(
             sources.StaticUniformAngularDistribution(-1, 1, 4),
             sources.StaticUniformBeam(-1, 1, 4),
             marks=pytest.mark.xfail,
-        )
-    ]
+        ),
+    ],
 )
 def test_undense_angular_source(
     session, angular_distribution, base_point_distribution, wavelengths

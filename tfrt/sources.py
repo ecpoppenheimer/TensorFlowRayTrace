@@ -1461,11 +1461,7 @@ class AngularSource(SourceBase):
         angles, wavelengths, base_x = tf.meshgrid(
             self._angles, self._wavelengths, self._base_points_x
         )
-        _, _, base_y = tf.meshgrid(
-            self._angles,
-            self._wavelengths,
-            self._base_points_y
-        )
+        _, _, base_y = tf.meshgrid(self._angles, self._wavelengths, self._base_points_y)
         if self._angle_ranks is not None:
             angle_ranks, _, _ = tf.meshgrid(
                 self._angle_ranks, self._wavelengths, self._base_points_x

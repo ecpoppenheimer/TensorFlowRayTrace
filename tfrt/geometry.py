@@ -667,7 +667,9 @@ def ray_reaction(rays, norm, n_in, n_out, new_ray_length=1.0, name="ray_reaction
             [xstart, ystart, xend, yend] + ray_data[4:], axis=1, name="active_rays"
         )
 
+
 # ====================================================================================
+
 
 def angle_in_interval(angle, start, end, name=None, epsilion=1e-10):
     """
@@ -697,29 +699,10 @@ def angle_in_interval(angle, start, end, name=None, epsilion=1e-10):
     lies inside the interval defined by start and end.
     """
     with tf.name_scope(name, default_name="angle_in_interval"):
+
         def reduce_angle(angle):
             return tf.where(tf.less(angle, 0.0), angle + 2 * PI, angle)
-            
+
         angle = reduce_angle(angle - start)
         end = reduce_angle(end - start)
         return tf.less_equal(angle, end)
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            

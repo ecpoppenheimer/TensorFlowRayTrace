@@ -1,9 +1,26 @@
 """
 Classes to help make source light ray sets that can be fed to the ray tracer.
 
-The ray tracer requires as one of its inputs a tensor that encodes the light input to the system.  This tensor must be rank 2, whose first dimension can be of any size and indexes each ray, and whose second dimension must be of size >= 5, and whose first five elements are xStart, yStart, xEnd, yEnd, and wavelength.  Rays are defined as line segments between the two points, Start and End.  But they are interpreted as semi-infinite rays whose origin is Start and whose angle is set by End.  The length of a ray does not matter.  The ray tracer will add a few extra elements to each ray in its output that help track where the ray originated from and what surfaces it interacted with.  Ray sets with these extra elements can be fed to a second ray tracer without issue, the extra information will simply be ignored.  This is why the second dimension of a ray set is defined as having size >= 5, rather than size == 5.
+The ray tracer requires as one of its inputs a tensor that encodes the light input to 
+the system.  This tensor must be rank 2, whose first dimension can be of any size and 
+indexes each ray, and whose second dimension must be of size >= 5, and whose first 
+five elements are xStart, yStart, xEnd, yEnd, and wavelength.  Rays are defined as 
+line segments between the two points, Start and End.  But they are interpreted as 
+semi-infinite rays whose origin is Start and whose angle is set by End.  The length 
+of a ray does not matter.  The ray tracer will add a few extra elements to each ray 
+in its output that help track where the ray originated from and what surfaces it 
+interacted with.  Ray sets with these extra elements can be fed to a second ray 
+tracer without issue, the extra information will simply be ignored.  This is why the 
+second dimension of a ray set is defined as having size >= 5, rather than size == 5.
 
-Since TensorFlow will automatically convert some python objects into tensors (so called tensor-like objects), there are multiple valid ways to generate starting ray sets for the ray tracer.  One issue is that TF by default interprets python floats as 32-bit floats, and the ray tracer requires its inputs to be 64-bit floats, so if you are building your ray sets with python logic it may be necessary to cast them.  A common pattern that I have used in the past to generate ray sets was to use a python list comprehension to build a nested list, and then cast it to a numpy array.  Example:
+Since TensorFlow will automatically convert some python objects into tensors (so 
+called tensor-like objects), there are multiple valid ways to generate starting ray 
+sets for the ray tracer.  One issue is that TF by default interprets python floats as 
+32-bit floats, and the ray tracer requires its inputs to be 64-bit floats, so if you 
+are building your ray sets with python logic it may be necessary to cast them.  A 
+common pattern that I have used in the past to generate ray sets was to use a python 
+list comprehension to build a nested list, and then cast it to a numpy array.  
+Example:
 
 startingRays = np.array(
     [
@@ -18,23 +35,71 @@ startingRays = np.array(
     dtype=np.float64
 )
 
-This object can be fed directly to the ray tracer.  It is also possible to give the ray tracer a placeholder and feed rays at runtime.
+This object can be fed directly to the ray tracer.  It is also possible to give the 
+ray tracer a placeholder and feed rays at runtime.
 
-Though these ways of building a rayset are valid, this module has been provided to make ray set generation more easy and convenient.  The sources defined in this module automatically package the ray set, the data used to build it, and ray ranks, which can help define target locations when using an optimizer.  Most of the parameters in the class constructors in this module can accept tensors as inputs, to simplify building parameterized ray sets.  Some of these parameters (like source center) can even be used as optimization targets to, for instance, figure out at what location a ray has to strike the entrance aperture of an optic in order to pass through a specific location inside the optic.  Any parameter that can accept a tensor (and therefore can be parametric) is labeled as parametric in the constructor's documentation.  Any parameter which can only accept a python object will be labeled as fixed, and the behavior controlled by that parameter cannot be adjusted after object instantiation.
+Though these ways of building a rayset are valid, this module has been provided to 
+make ray set generation more easy and convenient.  The sources defined in this module 
+automatically package the ray set, the data used to build it, and ray ranks, which 
+can help define target locations when using an optimizer.  Most of the parameters in 
+the class constructors in this module can accept tensors as inputs, to simplify 
+building parameterized ray sets.  Some of these parameters (like source center) can 
+even be used as optimization targets to, for instance, figure out at what location a 
+ray has to strike the entrance aperture of an optic in order to pass through a 
+specific location inside the optic.  Any parameter that can accept a tensor (and 
+therefore can be parametric) is labeled as parametric in the constructor's 
+documentation.  Any parameter which can only accept a python object will be labeled 
+as fixed, and the behavior controlled by that parameter cannot be adjusted after 
+object instantiation.
 
-There are three types of object defined in this module: Angular distributions, which describe the angle of rays in a ray set; base point distributions, which describe a point along the ray; and sources which describe ray sets and are the ultimate goal of this module.  Different sources accept different numbers of angular and base point distributions as parameters.
+There are three types of object defined in this module: Angular distributions, which 
+describe the angle of rays in a ray set; base point distributions, which describe a 
+point along the ray; and sources which describe ray sets and are the ultimate goal of 
+this module.  Different sources accept different numbers of angular and base point 
+distributions as parameters.
 
 There are three types of distributions: manual, static, and random.  
 
-Manual distributions are simply utilities that package user-defined data into the format used by sources.  This is a convenience for users who want to use a source partially defined by this module and partially defined by themselves (like the list comprehension and cast to numpy array example provided above).  Manual distributions do not do any kind of error checking on the data fed to them!
+Manual distributions are simply utilities that package user-defined data into the 
+format used by sources.  This is a convenience for users who want to use a source 
+partially defined by this module and partially defined by themselves (like the list 
+comprehension and cast to numpy array example provided above).  Manual distributions 
+do not do any kind of error checking on the data fed to them!
 
-Static distributions may be parametric, but they will yield the exact same ray set each time they are evaluated by a TF session (unless their parameters change).
+Static distributions may be parametric, but they will yield the exact same ray set 
+each time they are evaluated by a TF session (unless their parameters change).
 
-Random distributions are built out of TF random ops, and so will yield different rays each time they are evaluated, such as during optimization.  Be warned that if you desire to visualize starting rays during individual steps of optimization, if you are using a random distribution you will need to extract the ray set in the same session.run call where you run the optimization op, or else your visualization will not display rays that were actually used during optimization.
+Random distributions are built out of TF random ops, and so will yield different rays 
+each time they are evaluated, such as during optimization.  Be warned that if you 
+desire to visualize starting rays during individual steps of optimization, if you are 
+using a random distribution you will need to extract the ray set in the same 
+session.run call where you run the optimization op, or else your visualization will 
+not display rays that were actually used during optimization.
 
-Sources may be built either dense (the default) or not.  If a source is dense, it will generate a ray for each combination of elements in its distributions.  For instance, if you build a source and feed it 3 angles, 4 base points, and 5 wavelengths, a dense source will yield 3*4*5 = 60 rays.  If you build a source as un-dense, each distribution must have exactly the same number of elements, and the source will yield that many rays.  It is recommended that any source that uses a random distribution be un-dense (simply because that will make it more random) but this is not required.
+Sources may be built either dense (the default) or not.  If a source is dense, it 
+will generate a ray for each combination of elements in its distributions.  For 
+instance, if you build a source and feed it 3 angles, 4 base points, and 5 
+wavelengths, a dense source will yield 3*4*5 = 60 rays.  If you build a source as un-
+dense, each distribution must have exactly the same number of elements, and the 
+source will yield that many rays.  It is recommended that any source that uses a 
+random distribution be un-dense (simply because that will make it more random) but 
+this is not required.
 
-The objects defined in this module each take an optional name parameter in their constructor.  The name is used to define a name scope under which all ops added to the TF graph by the object are placed.  The desired effect of this is to make the graph visualization via TensorBoard cleaner.  By default a source will group the ops used to build a distribution inside its own group (under its own name scope) so that the source will appear in its entirety as a single node in TensorBoard.  If you do not want this behavior, you can call the distribution.build method to place the ops that build the distribution inside whatever name scope is currently active when the build method is called.  The expectation is that each distribution will be used only once, for a single source.  It is possible to share a distribution between each source, but if this is done, by default the distribution's ops will be grouped inside the source node of the source which is built first, and it will appear on TensorBoard that later sources have a dependency on the first source (through the shared distribution.)  In this case, it is probably cleaner to build the distribution manually before either source, so that it appears as its own group.
+The objects defined in this module each take an optional name parameter in their 
+constructor.  The name is used to define a name scope under which all ops added to 
+the TF graph by the object are placed.  The desired effect of this is to make the 
+graph visualization via TensorBoard cleaner.  By default a source will group the ops 
+used to build a distribution inside its own group (under its own name scope) so that 
+the source will appear in its entirety as a single node in TensorBoard.  If you do 
+not want this behavior, you can call the distribution.build method to place the ops 
+that build the distribution inside whatever name scope is currently active when the 
+build method is called.  The expectation is that each distribution will be used only 
+once, for a single source.  It is possible to share a distribution between each 
+source, but if this is done, by default the distribution's ops will be grouped inside 
+the source node of the source which is built first, and it will appear on TensorBoard 
+that later sources have a dependency on the first source (through the shared 
+distribution.)  In this case, it is probably cleaner to build the distribution 
+manually before either source, so that it appears as its own group.
 
 Public Angular Distributions
 ----------------------------
@@ -59,7 +124,6 @@ Angular Source
 Aperature Source
 
 
-
 """
 import math
 import itertools
@@ -70,7 +134,7 @@ import numpy as np
 
 PI = math.pi
 
-# =====================================================================================
+# ====================================================================================
 
 COUNTER = itertools.count(0)
 
@@ -456,7 +520,7 @@ class RandomLambertianAngularDistribution(AngularDistributionBase):
                 self._angles = tf.asin(self._ranks)
 
 
-# =====================================================================================
+# ====================================================================================
 
 
 class BasePointDistributionBase(ABC):
@@ -731,12 +795,8 @@ class BeamPointBase(BasePointDistributionBase):
             self._max_rank = self._beam_start / rank_scale
             self._min_rank = self._beam_end / rank_scale
 
-            self._endpoint_x = self._beam_start * tf.cos(
-                self._central_angle + PI / 2.0
-            )
-            self._endpoint_y = self._beam_start * tf.sin(
-                self._central_angle + PI / 2.0
-            )
+            self._endpoint_x = self._beam_start * tf.cos(self._central_angle + PI / 2.0)
+            self._endpoint_y = self._beam_start * tf.sin(self._central_angle + PI / 2.0)
 
     def _build_points(self):
         """
@@ -814,6 +874,7 @@ class RandomUniformBeam(BeamPointBase):
     shared by all beam distributions.
         
     """
+
     def build(self):
         with tf.name_scope(self._name) as scope:
             self._parametrize_beam()
@@ -930,6 +991,7 @@ class StaticUniformAperaturePoints(AperaturePointBase):
     shared by all aperature distributions.
         
     """
+
     def _build_ranks(self):
         self._ranks = tf.cast(tf.linspace(0.0, 1.0, self._sample_count), tf.float64)
 
@@ -956,13 +1018,14 @@ class RandomUniformAperaturePoints(AperaturePointBase):
     shared by all aperature distributions.
         
     """
+
     def _build_ranks(self):
         self._ranks = tf.random_uniform(
             tf.reshape(self._sample_count, (1,)), 0.0, 1.0, dtype=tf.float64
         )
 
 
-# =====================================================================================
+# ====================================================================================
 
 
 class SourceBase(ABC):
@@ -1069,8 +1132,8 @@ class PointSource(SourceBase):
         rays propigate outward, like a typical point source.  If false, the rays are
         all flipped a half-turn, so that their endpoint lies on center to create a 
         converging ray set.  Useful for generating a source with a known angular size
-        that illuminates only a single point on the optic at a time, but can be scanned
-        across the surface by making center a variable.
+        that illuminates only a single point on the optic at a time, but can be 
+        scanned across the surface by making center a variable.
     ray_length : scalar float tensor-like, parametric, optional
         The length given to all the rays generated by this source.  Ray length doesn't
         really matter to the ray tracer, since rays are interpreted as semi-infinite,
@@ -1086,8 +1149,8 @@ class PointSource(SourceBase):
     is_dense : bool
         Whether the source was built as dense or not
     angles : 1-D tf.float64 tensor
-        The absolute angle of each ray.  Will be expanded if the source is dense.  Will
-        differ from the angles in the distribution if central_angle is not zero.
+        The absolute angle of each ray.  Will be expanded if the source is dense.  
+        Will differ from the angles in the distribution if central_angle is not zero.
     angle_ranks : 1-D float64 tensor
         The angular rank of each ray.  Will be expanded if the source is dense.  
     wavelengths : 1-D float64 tensor
@@ -1121,9 +1184,7 @@ class PointSource(SourceBase):
             )
             self._wavelengths = tf.cast(wavelengths, tf.float64)
             self._wavelengths = tf.ensure_shape(
-                self._wavelengths,
-                (None,),
-                name=f"{self._name}_wavelengths_shape_check"
+                self._wavelengths, (None,), name=f"{self._name}_wavelengths_shape_check"
             )
 
             self._angular_distribution = angular_distribution
@@ -1257,10 +1318,10 @@ class AngularSource(SourceBase):
         If true, rays will be oriented such that their start points lie on the base 
         ponits and the rays propigate outward.  If false, the rays are all flipped a 
         half-turn, so that their endpoint lies on center to create a converging ray 
-        set.  In my opinion, using false gives the better display result when using an 
-        aperature source.  Also useful for generating a source with a known angular 
-        size that illuminates only a small portion on the optic at a time, but can be 
-        scanned across the surface by making center a variable.
+        set.  In my opinion, using false gives the better display result when using 
+        an aperature source.  Also useful for generating a source with a known 
+        angular size that illuminates only a small portion on the optic at a time, 
+        but can be scanned across the surface by making center a variable.
     ray_length : scalar float tensor-like, parametric, optional
         The length given to all the rays generated by this source.  Ray length doesn't
         really matter to the ray tracer, since rays are interpreted as semi-infinite,
@@ -1276,13 +1337,13 @@ class AngularSource(SourceBase):
     is_dense : bool
         Whether the source was built as dense or not
     angles : 1-D tf.float64 tensor
-        The absolute angle of each ray.  Will be expanded if the source is dense.  Will
-        differ from the angles in the distribution if central_angle is not zero.
+        The absolute angle of each ray.  Will be expanded if the source is dense.  
+        Will differ from the angles in the distribution if central_angle is not zero.
     angle_ranks : 1-D float64 tensor
         The angular rank of each ray.  Will be expanded if the source is dense.  
     base_points : 2-tuple of 1-D float64 tensor
-        The x and y coordinates of the base points.  Will be expanded if the source is 
-        dense.  
+        The x and y coordinates of the base points.  Will be expanded if the source 
+        is dense.  
     base_point_ranks : 1-D float64 tensor
         The base point rank of each ray.  Will be expanded if the source is dense.
     wavelengths : 1-D float64 tensor
@@ -1319,9 +1380,7 @@ class AngularSource(SourceBase):
             )
             self._wavelengths = tf.cast(wavelengths, tf.float64)
             self._wavelengths = tf.ensure_shape(
-                self._wavelengths,
-                (None,),
-                name=f"{self._name}_wavelengths_shape_check"
+                self._wavelengths, (None,), name=f"{self._name}_wavelengths_shape_check"
             )
 
             self._angular_distribution = angular_distribution
@@ -1402,11 +1461,7 @@ class AngularSource(SourceBase):
         angles, wavelengths, base_x = tf.meshgrid(
             self._angles, self._wavelengths, self._base_points_x
         )
-        _, _, base_y = tf.meshgrid(
-            self._angles,
-            self._wavelengths,
-            self._base_points_y
-        )
+        _, _, base_y = tf.meshgrid(self._angles, self._wavelengths, self._base_points_y)
         if self._angle_ranks is not None:
             angle_ranks, _, _ = tf.meshgrid(
                 self._angle_ranks, self._wavelengths, self._base_points_x
@@ -1551,9 +1606,7 @@ class AperatureSource(SourceBase):
         with tf.name_scope(self._name) as scope:
             self._wavelengths = tf.cast(wavelengths, tf.float64)
             self._wavelengths = tf.ensure_shape(
-                self._wavelengths,
-                (None,),
-                name=f"{self._name}_wavelengths_shape_check"
+                self._wavelengths, (None,), name=f"{self._name}_wavelengths_shape_check"
             )
             self._start_point_distribution = start_point_distribution
             if self._start_point_distribution.needs_build:
@@ -1587,9 +1640,7 @@ class AperatureSource(SourceBase):
                 )
             if self._end_ranks is not None:
                 self._end_ranks = tf.ensure_shape(
-                    self._end_ranks,
-                    (None,),
-                    name=f"{self._name}_end_ranks_shape_check"
+                    self._end_ranks, (None,), name=f"{self._name}_end_ranks_shape_check"
                 )
 
             if self._dense:

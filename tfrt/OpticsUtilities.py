@@ -480,7 +480,7 @@ def segmentParameterSmoother(parameter, strength=1.0, filterSize=5, sigma=1.5):
     kernel = np.reshape(gauss(filterSize, sigma), (-1, 1, 1))
 
     # pad the parameter, to prevent pulling down at the edges
-    padSize = (filterSize - 1) / 2
+    padSize = tf.cast((filterSize - 1) / 2, tf.int64)
     smoothedParameter = tf.pad(parameter, [[padSize, padSize]], mode="SYMMETRIC")
 
     smoothedParameter = tf.reshape(smoothedParameter, (1, -1, 1))

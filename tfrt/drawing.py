@@ -60,6 +60,14 @@ UNIT_TO_NUMBER = {"nm": 1, "um": 0.001}
 # ------------------------------------------------------------------------------------
 
 
+def form_mpl_line_syntax(rays):
+    return [
+        [(start_x, start_y), (end_x, end_y)] \
+        for start_x, start_y, end_x, end_y, *_ in \
+        zip(rays["x_start"], rays["y_start"], rays["x_end"], rays["y_end"])
+    ]
+   
+
 class RayDrawer:
     """
     Class for drawing a rayset.
@@ -73,10 +81,8 @@ class RayDrawer:
     ax : matplotlib.axes.Axes
         A handle to the mpl axis into which the rays will be drawn.
     rays : np.ndarray
-        An array that encodes information about the rays to be drawn, formatted like 
-        the raysets used by tfrt.raytrace.  Must be rank 2.  The first dimension 
-        indexes rays.  The second dimension must have length >= 5, whose first five 
-        elements are [start_x, start_y, end_x, end_y, wavelength].
+        An object that provides the proper signature to store rays.  Meaning it is can
+        be indexed with keys "x_start", "y_start", "x_end", "y_end", "wavelength".
     min_wavelength : float, optional
         The minimum wavelength, used only to normalize the colormap.
     max_wavelength : float, optional
@@ -97,7 +103,8 @@ class RayDrawer:
     Public attributes
     -----------------
     rays : np.ndarray
-        An array that encodes information about the rays to be drawn.
+        An object that provides the proper signature to store rays.  Meaning it is can
+        be indexed with keys "x_start", "y_start", "x_end", "y_end", "wavelength".
         Requires class redraw.
     ax : matplotlib.axes.Axes
         A handle to the mpl axis into which the rays will be drawn.
@@ -129,6 +136,7 @@ class RayDrawer:
 
         self.ax = ax
         self.rays = rays
+        self._ray_signature = set(["x_start", "y_start", "x_end", "y_end", "wavelength"])
         self._style = style
 
         try:
@@ -154,35 +162,29 @@ class RayDrawer:
             self._rays = np.zeros((0, 5))
         else:
             try:
-                shape = rays.shape
+                if rays.signature <= self._ray_signature:
+                    self._rays = rays
+                else:
+                    raise ValueError(
+                        f"RayDrawer: Rays does not have the proper"
+                        " signature."
+                    )
+                    
             except AttributeError as e:
-                raise AttributeError(
-                    f"{self.__class__.__name__}: Invalid rays.  Could not retrieve "
-                    "rays's shape."
-                ) from e
-
-            if len(shape) != 2:
                 raise ValueError(
-                    f"{self.__class__.__name__}: Invalid rays.  Tensor rank must be "
-                    "2, but is rank {len(shape)}."
-                )
-            if shape[1] < 5:
-                raise ValueError(
-                    f"{self.__class__.__name__}: Invalid rays.  Dim 1 must have at "
-                    "least 5 elements, but has {shape[1]}."
-                )
+                    f"RayDrawer: Rays doesn't have a signature."
+            ) from e
 
             self._rays = rays
 
     def draw(self):
         """Redraw the mpl artists controlled by this class."""
         self._line_collection.set_segments(
-            [
-                [(start_x, start_y), (end_x, end_y)]
-                for start_x, start_y, end_x, end_y, *_ in self.rays
-            ]
+            form_mpl_line_syntax(self.rays)
         )
-        self._line_collection.set_array(self._wavelength_unit_factor * self.rays[:, 4])
+        self._line_collection.set_array(
+            self._wavelength_unit_factor * self.rays["wavelength"]
+        )
 
     @property
     def colormap(self):
@@ -300,6 +302,13 @@ class ArcDrawer:
         self._color = color
         self._style = style
         self._arcs = arcs
+        self._arc_signature = set([
+            "x_center",
+            "y_center",
+            "angle_start",
+            "angle_end",
+            "radius"
+        ])
         self._arc_patches = []
         self._norm_arrows = []
         self.draw_norm_arrows = draw_norm_arrows
@@ -317,23 +326,14 @@ class ArcDrawer:
             self._arcs = np.zeros((0, 5))
         else:
             try:
-                shape = arcs.shape
+                if not self._arc_signature <= arcs.signature:
+                    raise ValueError(f"ArcDrawer: Arcs does not have the proper signature.")
+                else:
+                    self._arcs = arcs
             except AttributeError as e:
                 raise ValueError(
-                    f"{self.__class__.__name__}: Invalid arcs.  Could not retrieve "
-                    "arcs's shape."
-                ) from e
-
-            if len(shape) != 2:
-                raise ValueError(
-                    f"{self.__class__.__name__}: Invalid arcs.  Rank must be 2, but "
-                    "is rank {len(shape)}."
-                )
-            if shape[1] < 5:
-                raise ValueError(
-                    f"{self.__class__.__name__}: Invalid arcs.  Dim 1 must have at "
-                    "least 5 elements, but has {shape[1]}."
-                )
+                    f"ArcDrawer: Arcs doesn't have a signature."
+            ) from e
 
             self._arcs = arcs
 
@@ -347,8 +347,14 @@ class ArcDrawer:
             norm_arrow.remove()
         self._norm_arrows = []
 
-        for arc in self._arcs:
-            self._draw_arc(*arc[:5])
+        for xc, yc, ang_s, ang_e, r in zip(
+            self._arcs["x_center"],
+            self._arcs["y_center"],
+            self._arcs["angle_start"],
+            self._arcs["angle_end"],
+            self._arcs["radius"]
+        ):
+            self._draw_arc(xc, yc, ang_s, ang_e, r)
 
     def _draw_arc(self, center_x, center_y, angle_start, angle_end, radius):
         self._arc_patches.append(
@@ -540,6 +546,7 @@ class SegmentDrawer:
     ):
         self.ax = ax
         self.segments = segments
+        self._segment_signature = set(["x_start", "y_start", "x_end", "y_end"])
         self._color = color
         self._style = style
         self._norm_arrows = []
@@ -561,23 +568,16 @@ class SegmentDrawer:
             self._segments = np.zeros((0, 4))
         else:
             try:
-                shape = segments.shape
+                if not self._segments_signature <= segments.signature:
+                    raise ValueError(
+                        f"SegmentDrawer: Segments does not have the proper signature."
+                    )
+                else:
+                    self._segments = segments
             except AttributeError as e:
-                raise AttributeError(
-                    f"{self.__class__.__name__}: Invalid segments.  Could not "
-                    "retrieve segments's shape."
-                ) from e
-
-            if len(shape) != 2:
                 raise ValueError(
-                    f"{self.__class__.__name__}: Invalid segments.  Rank must be 2, "
-                    "but is rank {len(shape)}."
-                )
-            if shape[1] < 4:
-                raise ValueError(
-                    f"{self.__class__.__name__}: Invalid segments.  Dim 1 must have "
-                    "at least 4 elements, but has {shape[1]}."
-                )
+                    f"SegmentDrawer: Segments doesn't have a signature."
+            ) from e
 
             self._segments = segments
 
@@ -588,7 +588,12 @@ class SegmentDrawer:
         self._norm_arrows = []
 
         segments = []
-        for start_x, start_y, end_x, end_y, *_ in self.segments:
+        for start_x, start_y, end_x, end_y, in zip(
+            self.segments["x_start"],
+            self.segments["y_start"],
+            self.segments["x_end"],
+            self.segments["y_end"]
+        ):
             theta = np.arctan2(end_y - start_y, end_x - start_x) + PI / 2.0
 
             segments.append([(start_x, start_y), (end_x, end_y)])

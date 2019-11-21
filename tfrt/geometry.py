@@ -319,7 +319,7 @@ def line_circle_intersect(lines, circles, name=None, epsilion=1e-10):
         pointing palong the x axis.
         
     """
-    with tf.name_scope(name, default_name="line_circle_intersect_1_to_1"):
+    with tf.name_scope(name, default_name="line_circle_intersect"):
         lines = tf.ensure_shape(lines, (None, 4), name="Check_Lines_Shape")
         circles = tf.ensure_shape(circles, (None, 3), name="Check_Circles_Shape")
 

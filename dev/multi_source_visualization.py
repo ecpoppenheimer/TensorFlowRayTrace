@@ -7,11 +7,19 @@ import tfrt.sources as sources
 import tfrt.drawing as drawing
 import tfrt.materials as materials
 import tfrt.TFRayTrace as ray_trace
+import tfrt.engine as engine
 
 PI = sources.PI
 
 
-def on_key(event, drawer, source, angular_distribution, base_point_dist):
+def on_key(
+    event,
+    drawer,
+    source,
+    rayset,
+    angular_distribution,
+    base_point_dist
+):
     # Message loop called whenever a key is pressed on the figure
 
     # Extract the center and central_angle
@@ -53,9 +61,9 @@ def on_key(event, drawer, source, angular_distribution, base_point_dist):
         
     source.center = center
     source.central_angle = central_angle
-    source.update()
+    rayset.update()
     
-    drawer.rays = source
+    drawer.rays = rayset
     drawer.draw()
     drawing.redraw_current_figure()
 
@@ -77,7 +85,7 @@ if __name__ == "__main__":
     base_point_distribution = sources.StaticUniformBeam(
         -1.0, 1.0, 6
     )
-    source = sources.AngularSource(
+    movable_source = sources.AngularSource(
         [0.0, 0.0],
         0.0,
         angular_distribution,
@@ -88,6 +96,24 @@ if __name__ == "__main__":
         start_on_base=True,
         ray_length=1.0,
     )
+    
+    angles_2 = sources.RandomUniformAngularDistribution(
+        -PI / 4.0, PI / 4.0, 6, name="StaticUniformAngularDistribution"
+    )
+    fixed_source = sources.PointSource(
+        [-1.0, 0.0],
+        PI,
+        angles_2,
+        drawing.RAINBOW_6,
+        dense=False
+    )
+    
+    rayset = engine.RaySet(
+        ["wavelength"],
+        [movable_source, fixed_source],
+        2
+    )
+    print(rayset["x_start"])
 
     """# Make an optical surface, so we can check that the rays are oriented
     # correctly
@@ -108,7 +134,7 @@ if __name__ == "__main__":
 
     # set up drawer
     drawer = drawing.RayDrawer(ax)
-    drawer.rays = source
+    drawer.rays = rayset
     drawer.draw()
 
     """segment_drawer = drawing.SegmentDrawer(
@@ -119,6 +145,13 @@ if __name__ == "__main__":
     # hand over to user
     fig.canvas.mpl_connect(
         "key_press_event",
-        lambda event: on_key(event, drawer, source, angular_distribution, base_point_distribution),
+        lambda event: on_key(
+            event,
+            drawer,
+            movable_source,
+            rayset,
+            angular_distribution,
+            base_point_distribution
+        ),
     )
     plt.show()

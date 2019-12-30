@@ -8,6 +8,7 @@ import tfrt.drawing as drawing
 import tfrt.materials as materials
 import tfrt.TFRayTrace as ray_trace
 import tfrt.engine as engine
+import tfrt.distributions as distributions
 
 PI = sources.PI
 
@@ -15,10 +16,10 @@ PI = sources.PI
 def on_key(
     event,
     drawer,
+    optical_system,
     source,
-    rayset,
     angular_distribution,
-    base_point_dist
+    base_point_distribution
 ):
     # Message loop called whenever a key is pressed on the figure
 
@@ -61,9 +62,9 @@ def on_key(
         
     source.center = center
     source.central_angle = central_angle
-    rayset.update()
+    optical_system.update()
     
-    drawer.rays = rayset
+    drawer.rays = optical_system.sources
     drawer.draw()
     drawing.redraw_current_figure()
 
@@ -79,10 +80,10 @@ if __name__ == "__main__":
     ax.set_ybound(-2, 2)
 
     # build the source rays
-    angular_distribution = sources.StaticUniformAngularDistribution(
+    angular_distribution = distributions.StaticUniformAngularDistribution(
         -PI / 4.0, PI / 4.0, 6, name="StaticUniformAngularDistribution"
     )
-    base_point_distribution = sources.StaticUniformBeam(
+    base_point_distribution = distributions.StaticUniformBeam(
         -1.0, 1.0, 6
     )
     movable_source = sources.AngularSource(
@@ -97,7 +98,7 @@ if __name__ == "__main__":
         ray_length=1.0,
     )
     
-    angles_2 = sources.RandomUniformAngularDistribution(
+    angles_2 = distributions.RandomUniformAngularDistribution(
         -PI / 4.0, PI / 4.0, 6, name="StaticUniformAngularDistribution"
     )
     fixed_source = sources.PointSource(
@@ -108,12 +109,9 @@ if __name__ == "__main__":
         dense=False
     )
     
-    rayset = engine.RaySet(
-        ["wavelength"],
-        [movable_source, fixed_source],
-        2
-    )
-    print(rayset["x_start"])
+    optical_system = engine.OpticalSystem2D()
+    optical_system.sources = [movable_source, fixed_source]
+    optical_system.update()
 
     """# Make an optical surface, so we can check that the rays are oriented
     # correctly
@@ -134,7 +132,7 @@ if __name__ == "__main__":
 
     # set up drawer
     drawer = drawing.RayDrawer(ax)
-    drawer.rays = rayset
+    drawer.rays = optical_system.sources
     drawer.draw()
 
     """segment_drawer = drawing.SegmentDrawer(
@@ -148,8 +146,8 @@ if __name__ == "__main__":
         lambda event: on_key(
             event,
             drawer,
+            optical_system,
             movable_source,
-            rayset,
             angular_distribution,
             base_point_distribution
         ),

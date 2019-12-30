@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 
 import tfrt.sources as sources
+import tfrt.distributions as distributions
 import tfrt.drawing as drawing
 import tfrt.materials as materials
 import tfrt.TFRayTrace as ray_trace
@@ -22,10 +23,10 @@ if __name__ == "__main__":
     ax.set_ybound(-2, 2)
 
     # build the source rays
-    start_points = sources.StaticUniformAperaturePoints(
+    start_points = distributions.StaticUniformAperaturePoints(
         (-1, -0.5), (-1, 0.5), 5, name="StartPoints"
     )
-    end_points = sources.ManualBasePointDistribution(
+    end_points = distributions.ManualBasePointDistribution(
         (-0.5, -0.4, -0.3, -0.4, -0.5), (-0.4, -0.1, 0, 0.1, 0.4), name="EndPoints"
     )
     source = sources.AperatureSource(
@@ -52,13 +53,7 @@ if __name__ == "__main__":
 
     # set up drawer
     drawer = drawing.RayDrawer(ax)
-    drawer.rays = np.stack([
-        source["x_start"],
-        source["y_start"],
-        source["x_end"],
-        source["y_end"],
-        source["wavelength"]
-    ], axis=1)
+    drawer.rays = source
     drawer.draw()
 
     """segment_drawer = drawing.SegmentDrawer(

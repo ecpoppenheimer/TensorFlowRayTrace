@@ -57,6 +57,8 @@ RAINBOW_6 = [RED, ORANGE, YELLOW, GREEN, BLUE, PURPLE]
 
 UNIT_TO_NUMBER = {"nm": 1, "um": 0.001}
 
+ZEROS = np.zeros(0)
+
 # ------------------------------------------------------------------------------------
 
 
@@ -135,7 +137,7 @@ class RayDrawer:
     ):
 
         self.ax = ax
-        self.rays = rays
+        self._rays = rays
         self._ray_signature = set(["x_start", "y_start", "x_end", "y_end", "wavelength"])
         self._style = style
 
@@ -158,11 +160,12 @@ class RayDrawer:
 
     @rays.setter
     def rays(self, rays):
-        if rays is None:
-            self._rays = np.zeros((0, 5))
+        if not bool(rays):
+            # if the rays are empty, give a valid empty state
+            self._rays = {key: ZEROS for key in self._ray_signature}
         else:
             try:
-                if rays.signature <= self._ray_signature:
+                if self._ray_signature <= rays.keys():
                     self._rays = rays
                 else:
                     raise ValueError(
@@ -175,16 +178,16 @@ class RayDrawer:
                     f"RayDrawer: Rays doesn't have a signature."
             ) from e
 
-            self._rays = rays
-
     def draw(self):
         """Redraw the mpl artists controlled by this class."""
-        self._line_collection.set_segments(
-            form_mpl_line_syntax(self.rays)
-        )
-        self._line_collection.set_array(
-            self._wavelength_unit_factor * self.rays["wavelength"]
-        )
+        if bool(self.rays):
+            self._line_collection.set_segments(
+                form_mpl_line_syntax(self.rays)
+            )
+            self._line_collection.set_array(
+                self._wavelength_unit_factor * self.rays["wavelength"]
+            )
+            
 
     @property
     def colormap(self):
@@ -322,39 +325,53 @@ class ArcDrawer:
 
     @arcs.setter
     def arcs(self, arcs):
-        if arcs is None:
-            self._arcs = np.zeros((0, 5))
+        if not bool(arcs):
+            # if the arcs are empty, give a valid empty state
+            self._arcs = {key: ZEROS for key in self._arc_signature}
         else:
             try:
-                if not self._arc_signature <= arcs.signature:
-                    raise ValueError(f"ArcDrawer: Arcs does not have the proper signature.")
-                else:
+                if self._arc_signature <= arcs.keys():
                     self._arcs = arcs
+                else:
+                    raise ValueError(
+                        f"ArcDrawer: Arcs does not have the proper signature."
+                    )
+                    
             except AttributeError as e:
                 raise ValueError(
                     f"ArcDrawer: Arcs doesn't have a signature."
             ) from e
 
-            self._arcs = arcs
-
     def draw(self):
         """Redraw the mpl artists controlled by this class."""
-        for arc_patch in self._arc_patches:
-            arc_patch.remove()
-        self._arc_patches = []
+        if bool(self._arcs):
+            for arc_patch in self._arc_patches:
+                arc_patch.remove()
+            self._arc_patches = []
 
-        for norm_arrow in self._norm_arrows:
-            norm_arrow.remove()
-        self._norm_arrows = []
+            for norm_arrow in self._norm_arrows:
+                norm_arrow.remove()
+            self._norm_arrows = []
 
-        for xc, yc, ang_s, ang_e, r in zip(
-            self._arcs["x_center"],
-            self._arcs["y_center"],
-            self._arcs["angle_start"],
-            self._arcs["angle_end"],
-            self._arcs["radius"]
-        ):
-            self._draw_arc(xc, yc, ang_s, ang_e, r)
+            # these stupid numpy calls seem to fix MPL trying to index tensors when it 
+            # shouldn't
+            x_center = self._arcs["x_center"]
+            y_center = self._arcs["y_center"]
+            angle_start = self._arcs["angle_start"]
+            angle_end = self._arcs["angle_end"]
+            radius = self._arcs["radius"]
+            try:
+                x_center = x_center.numpy()
+                y_center = y_center.numpy()
+                angle_start = angle_start.numpy()
+                angle_end = angle_end.numpy()
+                radius = radius.numpy()
+            except(AttributeError):
+                pass
+            for xc, yc, ang_s, ang_e, r in zip(
+                x_center, y_center, angle_start, angle_end, radius
+            ):
+                self._draw_arc(xc, yc, ang_s, ang_e, r)
 
     def _draw_arc(self, center_x, center_y, angle_start, angle_end, radius):
         self._arc_patches.append(
@@ -489,10 +506,9 @@ class SegmentDrawer:
         A handle to the mpl axis into which the segments will be
         drawn.
     segments : np.ndarray
-        An array that encodes information about the segments to be drawn.  Must be 
-        rank 2.  The first dimension indexes segments.  The second dimension must 
-        have length >= 4, whose first four elements are [start_x, stary_y, end_x, 
-        end_y].
+        An object that provides the proper signature to store rays.  Meaning it is can
+        be indexed with keys "x_start", "y_start", "x_end", "y_end".  Requires class
+        redraw.
     color : color_like, optional
         The color of all segments and norm arrows drawn.  See
         https://matplotlib.org/api/colors_api.html for acceptable color formats.
@@ -545,7 +561,7 @@ class SegmentDrawer:
         norm_arrow_length=0.05,
     ):
         self.ax = ax
-        self.segments = segments
+        self._segments = segments
         self._segment_signature = set(["x_start", "y_start", "x_end", "y_end"])
         self._color = color
         self._style = style
@@ -564,56 +580,55 @@ class SegmentDrawer:
 
     @segments.setter
     def segments(self, segments):
-        if segments is None:
-            self._segments = np.zeros((0, 4))
+        if not bool(segments):
+            # if the segments are empty, give a valid empty state
+            self._segments = {key: ZEROS for key in self._segment_signature}
         else:
             try:
-                if not self._segments_signature <= segments.signature:
+                if self._segment_signature <= segments.keys():
+                    self._segments = segments
+                else:
                     raise ValueError(
                         f"SegmentDrawer: Segments does not have the proper signature."
                     )
-                else:
-                    self._segments = segments
             except AttributeError as e:
                 raise ValueError(
                     f"SegmentDrawer: Segments doesn't have a signature."
             ) from e
 
-            self._segments = segments
-
     def draw(self):
         """Redraw the mpl artists controlled by this class."""
-        for norm_arrow in self._norm_arrows:
-            norm_arrow.remove()
-        self._norm_arrows = []
+        if bool(self.segments):
+            for norm_arrow in self._norm_arrows:
+                norm_arrow.remove()
+            self._norm_arrows = []
 
-        segments = []
-        for start_x, start_y, end_x, end_y, in zip(
-            self.segments["x_start"],
-            self.segments["y_start"],
-            self.segments["x_end"],
-            self.segments["y_end"]
-        ):
-            theta = np.arctan2(end_y - start_y, end_x - start_x) + PI / 2.0
+            segments = []
+            for start_x, start_y, end_x, end_y, in zip(
+                self.segments["x_start"],
+                self.segments["y_start"],
+                self.segments["x_end"],
+                self.segments["y_end"]
+            ):
+                theta = np.arctan2(end_y - start_y, end_x - start_x) + PI / 2.0
+                segments.append([(start_x, start_y), (end_x, end_y)])
 
-            segments.append([(start_x, start_y), (end_x, end_y)])
-
-            if self.draw_norm_arrows:
-                self._norm_arrows.append(
-                    self.ax.add_patch(
-                        mpl.patches.Arrow(
-                            (start_x + end_x) / 2.0,
-                            (start_y + end_y) / 2.0,
-                            self.norm_arrow_length * math.cos(theta),
-                            self.norm_arrow_length * math.sin(theta),
-                            width=0.4 * self._norm_arrow_length,
-                            color=self._color,
-                            visible=self._norm_arrow_visibility,
+                if self.draw_norm_arrows:
+                    self._norm_arrows.append(
+                        self.ax.add_patch(
+                            mpl.patches.Arrow(
+                                (start_x + end_x) / 2.0,
+                                (start_y + end_y) / 2.0,
+                                self.norm_arrow_length * math.cos(theta),
+                                self.norm_arrow_length * math.sin(theta),
+                                width=0.4 * self._norm_arrow_length,
+                                color=self._color,
+                                visible=self._norm_arrow_visibility,
+                            )
                         )
                     )
-                )
 
-        self._line_collection.set_segments(segments)
+            self._line_collection.set_segments(segments)
 
     @property
     def color(self):

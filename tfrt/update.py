@@ -14,8 +14,20 @@ class RecursivelyUpdatable(ABC):
     will can turn recursive updating on and off.  False -> no recursive update.
     
     Has a public attribute: update_handles, which is a list of update functions that
-    will be called before calling self.update.  These functions must take no arguments.
+    will be called before calling self._update.  These functions must take no arguments.
     They will only be called if recursively_update is True.
+    
+    Has a public attribute: post_update_handles, which is like update_handles, except
+    these are called after all other updates.
+    
+    Has a public attribute: frozen, which disables updating if true
+    altogether.  This affects both self updating and recursive updating.
+    
+    Has a public method: forced_update which will ignore frozen, will recursively 
+    update, but will not recursively forced_update.  This might be useful if this object will
+    need to be updated only manually and only rarely, so that you can set frozen to 
+    True to disable automatic updating, but still call this function when needed, without
+    having to bother toggling enable_update back and forth.
     
     Classes that inherit from this base class should call super().__init__(**kwargs)
     late in their constructor, and should be able to pass update_handles and 
@@ -29,13 +41,24 @@ class RecursivelyUpdatable(ABC):
     
     def __init__(self, update_handles=None, recursively_update=True):
         self.recursively_update = recursively_update
+        self.frozen = False
         if update_handles is None:
             self.update_handles = self._generate_update_handles()
         else:
             self.update_handles = update_handles
+        self.post_update_handles = []
         self.update()
         
     def update(self):
+        if not self.frozen:
+            if self.recursively_update and bool(self.update_handles):
+                for handle in self.update_handles:
+                    handle()
+            self._update()
+            for handle in self.post_update_handles:
+                handle()
+            
+    def forced_update(self):
         if self.recursively_update:
             for handle in self.update_handles:
                 handle()

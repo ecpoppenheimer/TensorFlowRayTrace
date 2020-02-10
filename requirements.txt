@@ -2,3 +2,5 @@ numpy
 scipy
 tensorflow
 matplotlib
+pyvista
+tensorflow-graphics

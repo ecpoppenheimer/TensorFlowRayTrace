@@ -39,9 +39,9 @@ class RecursivelyUpdatable(ABC):
     recursively update.
     """
     
-    def __init__(self, update_handles=None, recursively_update=True):
+    def __init__(self, update_handles=None, recursively_update=True, frozen=False, **kwargs):
         self.recursively_update = recursively_update
-        self.frozen = False
+        self.frozen = frozen
         if update_handles is None:
             self.update_handles = self._generate_update_handles()
         else:

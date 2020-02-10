@@ -6,7 +6,6 @@ import math
 import tfrt.distributions as distributions
 import tfrt.sources as sources
 import tfrt.drawing as drawing
-import tfrt.TFRayTrace as ray_trace
 import tfrt.engine as eng
 import tfrt.operation as op
 
@@ -45,7 +44,7 @@ ax.set_aspect("equal")
 ax.set_xbound(-2, 2)
 ax.set_ybound(-2, 2)
 
-drawer = drawing.RayDrawer(ax)
+drawer = drawing.RayDrawer2D(ax)
 drawer.rays = system.sources
 drawer.draw()
 

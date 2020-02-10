@@ -17,6 +17,8 @@ TARGET = 2
 
 SEGMENT_GEO_SIG = {"x_start", "y_start", "x_end", "y_end"}
 ARC_GEO_SIG = {"x_center", "y_center", "angle_start", "angle_end", "radius"}
+SOURCE_3D_SIG = {"x_start", "y_start", "z_start", "x_end", "y_end", "z_end"}
+TRIANGLE_GEO_SIG = {"xp", "yp", "zp", "x1", "y1", "z1", "x2", "y2", "z2", "norm"}
 
 PI = tf.constant(math.pi, dtype=tf.float64)
 
@@ -222,9 +224,9 @@ class OpticalSystemBase(RecursivelyUpdatable, ABC):
         self._materials = val
         
     @abstractmethod
-    def project(self, rays):
+    def intersect(self, rays):
         """
-        Project the given rays into the system's merged boundaries.
+        Intersect the given rays with the system's merged boundaries.
         
         This function returns for dicts: active, finished, stopped, dead (each itself a 
         dict), split by the type of boundary intersected with and whose data is gathered 
@@ -518,9 +520,9 @@ class OpticalSystem2D(OpticalSystemBase):
             ARC_GEO_SIG | {"catagory"}
         )
         
-    def project(self, rays):
+    def intersect(self, rays):
         """
-        Project a set of rays into all of the system's surfaces.
+        Intersect a set of rays with all of the system's surfaces.
         
         Returns:
             Each return is a dict that contains various fields.  The value in 
@@ -558,12 +560,6 @@ class OpticalSystem2D(OpticalSystemBase):
         
         seg = {}
         arc = {}
-        output_rays = {
-            "x_start": rays["x_start"],
-            "y_start": rays["y_start"],
-            "x_end": rays["x_end"],
-            "y_end": rays["y_end"]
-        }
         
         if has_segments:
             # do segment intersection
@@ -585,8 +581,8 @@ class OpticalSystem2D(OpticalSystemBase):
                 tf.atan2(
                     self._merged_segments["y_end"] - self._merged_segments["y_start"],
                     self._merged_segments["x_end"] - self._merged_segments["x_start"]
-                ),
-                seg["gather_ray"]
+                ) + PI/2.0,
+                seg["gather_segment"]
             )
             
         if has_arcs:
@@ -607,7 +603,7 @@ class OpticalSystem2D(OpticalSystemBase):
                     self.ray_start_epsilion
                 )
             arc["norm"] = self._get_arc_norm(
-                self._merged_arcs["radius"], arc["arc_u"], arc["gather_ray"]
+                self._merged_arcs["radius"], arc["arc_u"], arc["gather_arc"]
             )
              
         if has_segments and has_arcs:
@@ -618,16 +614,16 @@ class OpticalSystem2D(OpticalSystemBase):
             )
                 
         return seg, arc
-        
-    @staticmethod
-    @tf.function(
+
+    """@tf.function(
         input_signature=[
             tf.TensorSpec(shape=(None,), dtype=tf.float64),
             tf.TensorSpec(shape=(None,), dtype=tf.float64),
             tf.TensorSpec(shape=(None,), dtype=tf.bool),
             tf.TensorSpec(shape=(None,), dtype=tf.bool)
         ]
-    )        
+    )"""
+    @staticmethod
     def _seg_or_arc(seg_u, arc_u, seg_valid, arc_valid):
         """all_u = tf.concat([seg_u, arc_u], axis=0)
         inf = 2 * tf.reduce_max(all_u) * tf.ones_like(seg_u)
@@ -659,22 +655,21 @@ class OpticalSystem2D(OpticalSystemBase):
         arc_valid = tf.where(has_both, tf.logical_not(seg_less), arc_valid)
         
         return seg_valid, arc_valid
-        
-    @staticmethod
-    @tf.function(
+
+    """@tf.function(
         input_signature=[
             tf.TensorSpec(shape=(None,), dtype=tf.float64),
             tf.TensorSpec(shape=(None,), dtype=tf.float64),
             tf.TensorSpec(shape=(None,), dtype=tf.int64),
         ]
-    )        
+    )"""
+    @staticmethod
     def _get_arc_norm(radius, arc_u, gather_ray):
         radius = tf.gather(radius, gather_ray)
         arc_norm = tf.where(tf.less(radius, 0), arc_u + PI, arc_u)
         return tf.math.mod(arc_norm + PI, 2*PI) - PI
     
-    @staticmethod
-    @tf.function(
+    """@tf.function(
         input_signature=[
             tf.TensorSpec(shape=(None,), dtype=tf.float64),
             tf.TensorSpec(shape=(None,), dtype=tf.float64),
@@ -688,7 +683,8 @@ class OpticalSystem2D(OpticalSystemBase):
             tf.TensorSpec(shape=(), dtype=tf.float64),
             tf.TensorSpec(shape=(), dtype=tf.float64)
         ]
-    )        
+    )"""
+    @staticmethod
     def _segment_intersection(
         rx1, ry1, rx2, ry2, sx1, sy1, sx2, sy2,
         intersect_epsilion,
@@ -751,9 +747,8 @@ class OpticalSystem2D(OpticalSystemBase):
         seg_u = tf.gather_nd(seg_u, gather_both)
         
         return x, y, valid, ray_u, seg_u, gather_ray, gather_segment
-        
-    @staticmethod
-    @tf.function(
+
+    """@tf.function(
         input_signature=[
             tf.TensorSpec(shape=(None,), dtype=tf.float64),
             tf.TensorSpec(shape=(None,), dtype=tf.float64),
@@ -768,7 +763,8 @@ class OpticalSystem2D(OpticalSystemBase):
             tf.TensorSpec(shape=(), dtype=tf.float64),
             tf.TensorSpec(shape=(), dtype=tf.float64)
         ]
-    )        
+    )"""  
+    @staticmethod      
     def _arc_intersection(
         rx1, ry1, rx2, ry2, xc, yc, a1, a2, r,
         intersect_epsilion,
@@ -868,7 +864,307 @@ class OpticalSystem2D(OpticalSystemBase):
         arc_u = tf.gather_nd(arc_u, gather_both)
         
         return x, y, valid, ray_u, arc_u, gather_ray, gather_arc
+
+
+# -------------------------------------------------------------------------------------
+
+class OpticalSystem3D(OpticalSystemBase):
+    def __init__(self, **kwargs):
+        self._optical = []
+        self.optical_handles = []
+        self._amalgamated_optical = {}
+        self._stop = []
+        self.stop_handles = []
+        self._amalgamated_stop = {}
+        self._target = []
+        self.target_handles = []
+        self._amalgamated_target = {}
+        self._materials = {}
         
+        self.clear_read_only()
+        
+        super().__init__(**kwargs)
+        
+    def clear_read_only(self):
+        self._read_only_sources = None
+        self._read_only_optical = None
+        self._read_only_stop = None
+        self._read_only_target = None
+        
+    def refresh_update_handles(self):
+        if not self.manual_update_management:
+            self._generate_update_handles()
+    
+    def _generate_update_handles(self):
+        self.update_handles = self.source_handles + self.optical_handles + \
+            self.stop_handles + self.target_handles
+    
+    @property    
+    def dimension(self):
+        return 3
+        
+    def _update(self):
+        if bool(self._sources):
+            self._amalgamated_sources = amalgamate(self._sources)
+        if bool(self._optical):
+            self._amalgamated_optical = amalgamate(self._optical)
+        if bool(self._stop):
+            self._amalgamated_stop = amalgamate(self._stop)
+        if bool(self._target):
+            self._amalgamated_target = amalgamate(self._target)
+            
+        self._merge_boundaries()
+            
+        self.clear_read_only()
+        
+    @property
+    def optical(self):
+        if not bool(self._read_only_optical):
+            self._read_only_optical = ReadOnlySet(
+                self._amalgamated_optical
+            )
+        return self._read_only_optical
+        
+    @optical.setter
+    def optical(self, new):
+        self.optical_handles = []
+        for each in new:
+            assert each.dimension == self.dimension
+            self.optical_handles.append(each.update)
+        self._optical = new
+        self.refresh_update_handles()
+        
+    @property
+    def stops(self):
+        if not bool(self._read_only_stop):
+            self._read_only_stop = ReadOnlySet(
+                self._amalgamated_stop
+            )
+        return self._read_only_stop
+        
+    @stops.setter
+    def stops(self, new):
+        self.stop_handles = []
+        for each in new:
+            assert each.dimension == self.dimension
+            self.stop_handles.append(each.update)
+        self._stop = new
+        self.refresh_update_handles()
+        
+    @property
+    def targets(self):
+        if not bool(self._read_only_target):
+            self._read_only_target = ReadOnlySet(
+                self._amalgamated_target
+            )
+        return self._read_only_target
+        
+    @targets.setter
+    def targets(self, new):
+        self.target_handles = []
+        for each in new:
+            assert each.dimension == self.dimension
+            self.target_handles.append(each.update)
+        self._target = new
+        self.refresh_update_handles()
+        
+    def _merge_boundaries(self):
+        """
+        Labels and merges the boundaries (targets, stops, and optical ones) in preparation
+        for tracing.
+        """
+        
+        optical = self._amalgamated_optical
+        if bool(optical):
+            optical["catagory"] = OPTICAL * tf.ones_like(
+                optical["xp"],
+                dtype=tf.int64
+            )
+            self._optical_count = tf.shape(
+                optical["xp"],
+                out_type=tf.int64
+            )[0]
+        else:
+            self._optical_count = 0
+            
+        stop = self._amalgamated_stop
+        if bool(stop):
+            stop["catagory"] = STOP * tf.ones_like(
+                stop["xp"],
+                dtype=tf.int64
+            )
+            self._stop_count = tf.shape(
+                stop["xp"],
+                out_type=tf.int64
+            )[0]
+        else:
+            self._stop_count = 0
+            
+        target = self._amalgamated_target
+        if bool(target):
+            target["catagory"] = TARGET * tf.ones_like(
+                target["xp"],
+                dtype=tf.int64
+            )
+            self._target_count = tf.shape(
+                target["xp"],
+                out_type=tf.int64
+            )[0]
+        else:
+            self._target_count = 0
+            
+        self._merged = amalgamate(
+            [optical, stop, target], 
+            TRIANGLE_GEO_SIG | {"catagory"}
+        )
+        
+    def intersect(self, rays):
+        """
+        Intersect a set of rays with all of the system's surfaces.
+        
+        Returns
+        -------
+        segment_intersections : dict
+            Contains data about the intersections between rays and segments, but not
+            data about the segments themselves.
+            Fields:
+            "x", "y", "z" :
+                The location of the intersection.
+            "valid" :
+                True where the ray intersected a segment.
+            "ray_u" : 
+                The parameter along the ray.
+            "trig_u", "trig_v" :
+                The parameters along the triangle.
+            "gather_ray", "gather_trig"
+                Indices that can be used to gather ray or triangle data out of the system's
+                merged sets with tf.gather.  Contains entries for invalid intersections, 
+                so should also be masked with tf.boolean_mask and "valid".
+            "norm" :
+                The norm of the boundary at the point of intersection.
+            
+            
+        """        
+        result = {}
+        
+        if bool(self._merged):
+            result["x"], result["y"], result["z"], result["valid"], result["ray_u"], \
+                result["trig_u"], result["trig_v"], result["gather_ray"], \
+                result["gather_trig"] = self._intersection(
+                    rays["x_start"],
+                    rays["y_start"],
+                    rays["z_start"],
+                    rays["x_end"],
+                    rays["y_end"],
+                    rays["z_end"],
+                    self._merged["xp"],
+                    self._merged["yp"],
+                    self._merged["zp"],
+                    self._merged["x1"],
+                    self._merged["y1"],
+                    self._merged["z1"],
+                    self._merged["x2"],
+                    self._merged["y2"],
+                    self._merged["z2"],
+                    self.intersect_epsilion,
+                    self.size_epsilion,
+                    self.ray_start_epsilion
+                )
+                
+            result["norm"] = tf.gather(
+                self._merged["norm"],
+                result["gather_trig"]
+            )
+                
+        return result
+
+    """@tf.function(
+        input_signature=[
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(None,), dtype=tf.float64),
+            tf.TensorSpec(shape=(), dtype=tf.float64),
+            tf.TensorSpec(shape=(), dtype=tf.float64),
+            tf.TensorSpec(shape=(), dtype=tf.float64)
+        ]
+    )"""   
+    @staticmethod
+    def _intersection(
+        rx1, ry1, rz1, rx2, ry2, rz2, xp, yp, zp, x1, y1, z1, x2, y2, z2,
+        intersect_epsilion,
+        size_epsilion,
+        ray_start_epsilion
+    ):
+        """
+        Returns:
+            The returns are all 1-D, and are value per ray (they have as many elements as
+            rays were given to the system.  Where valid is false, the corresponding value
+            in each of the other returns is garbage.  You can tf.boolean_mask the
+            other outputs with valid to get only non-garbage results.
+        x, y, z :
+            The location of the intersection.
+        valid :
+            True when a ray found any valid intersection
+        ray_u, trig_u, trig_v :
+            The parameter along the ray or segment to the intersection.  For rays, length 
+            is in parameter-space, so it will only be the true distance if the ray started 
+            at length 1.  But whatever units this is in, it should compare correctly to 
+            the equivalent value from the arc intersection.
+        gather_ray, gather_trig : 
+            The index of the segment and ray per intersection.  These values can be used 
+            to gather data out of the sets.  gather_ray is relative to the rays in the set 
+            input to this function, not necessairly to system.sources.  gather_segment is 
+            relative to system._merged_segments.  Since the optical segments are 
+            listed first, if we mask out stopped / finished ray intersections, this should 
+            map into system.optical_segments.
+        """        
+        x, y, z, valid, ray_u, trig_u, trig_v = geometry.line_triangle_intersect(
+            rx1, ry1, rz1, rx2, ry2, rz2, xp, yp, zp, x1, y1, z1, x2, y2, z2, 
+            intersect_epsilion
+        )
+        
+        # prune invalid ray / segment intersections
+        valid = tf.logical_and(valid, tf.greater_equal(trig_u, -size_epsilion))
+        valid = tf.logical_and(valid, tf.greater_equal(trig_v, -size_epsilion))
+        valid = tf.logical_and(valid, tf.less_equal(trig_u + trig_v, 1 + size_epsilion))
+        valid = tf.logical_and(valid, tf.greater_equal(ray_u, ray_start_epsilion))
+        
+        # fill ray_u with large values wherever the intersection is invalid
+        inf = 2 * tf.reduce_max(ray_u) * tf.ones_like(ray_u)
+        ray_u = tf.where(valid, ray_u, inf)
+        
+        # find the closest ray intersection
+        closest_trig = tf.argmin(ray_u, axis=0)
+        
+        # gather / reduce variables down to a 1-D list that indexes intersected rays
+        # right now everything is square, where the first index is for the triangle, and 
+        # the second is for the ray.
+        valid = tf.reduce_any(valid, axis=0)
+        ray_range = tf.cast(tf.range(tf.shape(rx1)[0]), tf.int64)
+        gather_triangle = closest_trig
+        gather_ray = ray_range
+        gather_both = tf.transpose(tf.stack([gather_triangle, gather_ray]))
+        
+        x = tf.gather_nd(x, gather_both)
+        y = tf.gather_nd(y, gather_both)
+        z = tf.gather_nd(z, gather_both)
+        ray_u = tf.gather_nd(ray_u, gather_both)
+        trig_u = tf.gather_nd(trig_u, gather_both)
+        trig_v = tf.gather_nd(trig_v, gather_both)
+        
+        return x, y, z, valid, ray_u, trig_u, trig_v, gather_ray, gather_triangle
 
 # =====================================================================================
 
@@ -922,6 +1218,7 @@ class OpticalEngine:
         self,
         dimension,
         operations,
+        optical_system=None,
         compile_technical_intersections=False,
         compile_stopped_rays=False,
         compile_dead_rays=False,
@@ -938,6 +1235,8 @@ class OpticalEngine:
             Must be exactly 2 or 3.
         operations : list
             A list of operations to perform on the generated rays.
+        optical_system : an OpticalSystem, optional
+            The system to attach to this engine.  May be None.
         compile_technical_intersections : bool, optional
             Defaults to False, in which case technical boundaries will not be gathered
             to reacting rays, and ray reactions with technical boundaries will not be
@@ -986,7 +1285,7 @@ class OpticalEngine:
         self._dimension = dimension
         self._check_exclusions(operations)
         self._operations = operations
-        self._optical_system = None
+        self._optical_system = optical_system
         self.compile_technical_intersections = compile_technical_intersections
         self.compile_stopped_rays = compile_stopped_rays
         self.compile_dead_rays = compile_dead_rays
@@ -1180,7 +1479,38 @@ class OpticalEngine:
                             f"System signature is {sig}, but needed {required}."
                         )
             else: # dimension == 3
-                pass
+                if bool(self.optical_system._amalgamated_sources):
+                    sig = set(self.optical_system._amalgamated_sources.keys())
+                    required = SOURCE_3D_SIG | self.input_signature
+                    if not (sig >= required):
+                        raise RuntimeError(
+                            f"Optical engine failed sources signature check.  System " 
+                            f"signature is {sig}, but needed {required}."
+                        )
+                if bool(self.optical_system._amalgamated_optical):
+                    sig = set(self.optical_system._amalgamated_optical.keys())
+                    required = TRIANGLE_GEO_SIG | self.optical_signature
+                    if not (sig >= required):
+                        raise RuntimeError(
+                            f"Optical engine failed optical segments signature check.  "
+                            f"System signature is {sig}, but needed {required}."
+                        )
+                if bool(self.optical_system._amalgamated_stop):
+                    sig = set(self.optical_system._amalgamated_stop.keys())
+                    required = TRIANGLE_GEO_SIG | self.stop_signature
+                    if not (sig >= required):
+                        raise RuntimeError(
+                            f"Optical engine failed stop segments signature check.  "
+                            f"System signature is {sig}, but needed {required}."
+                        )
+                if bool(self.optical_system._amalgamated_target):
+                    sig = set(self.optical_system._amalgamated_target.keys())
+                    required = TRIANGLE_GEO_SIG | self.target_signature
+                    if not (sig >= required):
+                        raise RuntimeError(
+                            f"Optical engine failed target segments signature check.  "
+                            f"System signature is {sig}, but needed {required}."
+                        )
         else:
             print("No optical system found, so validating nothing.")
             
@@ -1241,401 +1571,622 @@ class OpticalEngine:
         compile_geometry_specific_result will be false and there will only be one copy
         of the result data.
         """
-        if bool(self.optical_system) and self.dimension == 2:
-            result = {}
-            active_rays = {}
-            input_ray_fields = input_rays.keys()
+        if not bool(self.optical_system):
+            return {}
+        if self.dimension != 2:
+            raise RuntimeError("Should not call 2D function on 3D system")
             
-            has_segments = bool(self.optical_system._merged_segments)
-            has_arcs = bool(self.optical_system._merged_arcs)
+        result = {}
+        active_rays = {}
+        input_ray_fields = input_rays.keys()
+        
+        has_segments = bool(self.optical_system._merged_segments)
+        has_arcs = bool(self.optical_system._merged_arcs)
+        
+        seg_proj, arc_proj = self.optical_system.intersect(input_rays)
+        
+        # compile dead rays
+        if self.compile_dead_rays:
+            dead_rays = {}
+            if has_segments and has_arcs:
+                is_dead = tf.logical_not(
+                    tf.logical_or(seg_proj["valid"], arc_proj["valid"])
+                )
+            elif has_segments:
+                is_dead = tf.logical_not(seg_proj["valid"])
+            elif has_arcs:
+                is_dead = tf.logical_not(arc_proj["valid"])
+            for field in input_ray_fields:
+                dead_rays[field] = tf.boolean_mask(
+                    input_rays[field],
+                    is_dead
+                )
+            if bool(self.dead_ray_length):
+                # change the length of the dead rays
+                dead_rays["x_end"] = dead_rays["x_start"] + \
+                    self.dead_ray_length * (dead_rays["x_end"] - 
+                    dead_rays["x_start"])
+                dead_rays["y_end"] = dead_rays["y_start"] + \
+                    self.dead_ray_length * (dead_rays["y_end"] - 
+                    dead_rays["y_start"])
+                    
+            self._dead_rays.append(dead_rays)
+        
+        if has_segments: 
+             # update the input_rays with the projections
+            input_rays["x_end"] = tf.where(
+                seg_proj["valid"], seg_proj["x"], input_rays["x_end"]
+            )
+            input_rays["y_end"] = tf.where(
+                seg_proj["valid"], seg_proj["y"], input_rays["y_end"]
+            )
             
-            seg_proj, arc_proj = self.optical_system.project(input_rays)
+            # gather the boundary types
+            seg_boundary_type = tf.gather(
+                self.optical_system._merged_segments["catagory"], 
+                seg_proj["gather_segment"]
+            )
             
-            # compile dead rays
-            if self.compile_dead_rays:
-                dead_rays = {}
-                if has_segments and has_arcs:
-                    is_dead = tf.logical_not(
-                        tf.logical_or(seg_proj["valid"], arc_proj["valid"])
-                    )
-                elif has_segments:
-                    is_dead = tf.logical_not(seg_proj["valid"])
-                elif has_arcs:
-                    is_dead = tf.logical_not(arc_proj["valid"])
-                for field in input_ray_fields:
-                    dead_rays[field] = tf.boolean_mask(
-                        input_rays[field],
-                        is_dead
-                    )
-                if bool(self.dead_ray_length):
-                    # change the length of the dead rays
-                    dead_rays["x_end"] = dead_rays["x_start"] + \
-                        self.dead_ray_length * (dead_rays["x_end"] - 
-                        dead_rays["x_start"])
-                    dead_rays["y_end"] = dead_rays["y_start"] + \
-                        self.dead_ray_length * (dead_rays["y_end"] - 
-                        dead_rays["y_start"])
-                        
-                self._dead_rays.append(dead_rays)
-            
-            if has_segments: 
-                 # update the input_rays with the projections
-                input_rays["x_end"] = tf.where(
-                    seg_proj["valid"], seg_proj["x"], input_rays["x_end"]
-                )
-                input_rays["y_end"] = tf.where(
-                    seg_proj["valid"], seg_proj["y"], input_rays["y_end"]
-                )
-                
-                # gather the boundary types
-                seg_boundary_type = tf.gather(
-                    self.optical_system._merged_segments["catagory"], 
-                    seg_proj["gather_segment"]
-                )
-                
-                # compile active_rays
-                active_seg_rays = {}
-                is_active_seg = tf.logical_and(
-                    seg_proj["valid"],
-                    tf.equal(seg_boundary_type, OPTICAL)
-                )
-                for field in input_ray_fields:
-                    active_seg_rays[field] = tf.boolean_mask(
-                        input_rays[field],
-                        is_active_seg
-                    )
-                if self.compile_active_rays:
-                    self._active_rays.append(active_seg_rays)
-                
-                # compile finished_rays
-                if self.compile_finished_rays:
-                    finished_seg_rays = {}
-                    is_finished_seg = tf.logical_and(
-                        seg_proj["valid"],
-                        tf.equal(seg_boundary_type, TARGET)
-                    )
-                    for field in input_ray_fields:
-                        finished_seg_rays[field] = tf.boolean_mask(
-                            input_rays[field],
-                            is_finished_seg
-                        )
-                    self._finished_rays.append(finished_seg_rays)
-                            
-                # compile stopped_rays
-                if self.compile_stopped_rays:
-                    stopped_seg_rays = {}
-                    is_stopped_seg = tf.logical_and(
-                        seg_proj["valid"],
-                        tf.equal(seg_boundary_type, STOP)
-                    )
-                    for field in input_ray_fields:
-                        stopped_seg_rays[field] = tf.boolean_mask(
-                            input_rays[field],
-                            is_stopped_seg
-                        )
-                    self._stopped_rays.append(stopped_seg_rays)
-                            
-                # compile optical boundaries
-                gather_optical_segment = tf.boolean_mask(
-                    seg_proj["gather_segment"],
+            # compile active_rays
+            active_seg_rays = {}
+            is_active_seg = tf.logical_and(
+                seg_proj["valid"],
+                tf.equal(seg_boundary_type, OPTICAL)
+            )
+            for field in input_ray_fields:
+                active_seg_rays[field] = tf.boolean_mask(
+                    input_rays[field],
                     is_active_seg
                 )
-                optical_segments = {
-                    field: tf.gather(
-                        self.optical_system._amalgamated_optical_segments[field],
-                        gather_optical_segment
-                    )
-                    for field in self.optical_system._amalgamated_optical_segments.keys()
-                }
-                optical_seg_norm = tf.boolean_mask(
-                    seg_proj["norm"], is_active_seg
-                )
-                try:
-                    if optical_seg_norm.shape[0] > 0:
-                        optical_segments["norm"] = optical_seg_norm
-                except(TypeError):
-                    optical_segments["norm"] = tf.zeros((0,))
-                
-                # compile techinical boundaries
-                # This step is only performed if the both flags are set.
-                if self.compile_technical_intersections and self.compile_stopped_rays:
-                    gather_stop_segment = tf.boolean_mask(
-                        (
-                            seg_proj["gather_segment"] - 
-                            self.optical_system._optical_seg_count
-                        ),
-                        is_stopped_seg
-                    )
-                    stop_segments = {
-                        field: tf.gather(
-                            self.optical_system._amalgamated_stop_segments[field],
-                            gather_stop_segment
-                        )
-                        for field in self.optical_system._amalgamated_stop_segments.keys()
-                    }
-                    stop_seg_norm = tf.boolean_mask(
-                        seg_proj["norm"], is_stopped_seg
-                    )
-                    if stop_seg_norm.shape[0] > 0:
-                        stop_segments["norm"] = stop_seg_norm
-                    
-                if (self.compile_technical_intersections and 
-                    self.compile_finished_rays
-                ):
-                    gather_target_segment = tf.boolean_mask(
-                        (
-                            seg_proj["gather_segment"] - 
-                            self.optical_system._optical_seg_count -
-                            self.optical_system._stop_seg_count
-                        ),
-                        is_finished_seg
-                    )
-                    target_segments = {
-                        field: tf.gather(
-                            self.optical_system._amalgamated_target_segments[field],
-                            gather_target_segment
-                        )
-                        for field in \
-                            self.optical_system._amalgamated_target_segments.keys()
-                    }
-                    finished_seg_norm = tf.boolean_mask(
-                        seg_proj["norm"], is_finished_seg
-                    )
-                    if finished_seg_norm.shape[0] > 0:
-                        target_segments["norm"] = finished_seg_norm
-                    
-                # compile the segment stuff into the segment result
-                if self.compile_geometry_specific_result:
-                    result["segment"] = {
-                        "rays": {"active": active_seg_rays},
-                        "optical": optical_segments
-                    }
-                    if self.compile_finished_rays:
-                        result["seg"]["rays"]["finished"] = \
-                            finished_seg_rays
-                        if self.compile_technical_intersections:
-                            result["seg"]["target"] = \
-                                target_segments
-                    if self.compile_stopped_rays:
-                        result["seg"]["rays"]["stopped"] = \
-                            stopped_seg_rays
-                        if self.compile_technical_intersections:
-                            result["seg"]["stop"] = \
-                                stop_segments
-                    if self.compile_dead_rays:
-                        result["seg"]["rays"]["dead"] = \
-                            dead_rays
-                
-            if has_arcs:
-                # update the input_rays with the projections
-                input_rays["x_end"] = tf.where(
-                    arc_proj["valid"], arc_proj["x"], input_rays["x_end"]
-                )
-                input_rays["y_end"] = tf.where(
-                    arc_proj["valid"], arc_proj["y"], input_rays["y_end"]
-                )
-                
-                # gather the boundary types
-                arc_boundary_type = tf.gather(
-                    self.optical_system._merged_arcs["catagory"],
-                    arc_proj["gather_arc"]
-                )
-                
-                # compile active_rays
-                active_arc_rays = {}
-                is_active_arc = tf.logical_and(
-                    arc_proj["valid"],
-                    tf.equal(arc_boundary_type, OPTICAL)
+            if self.compile_active_rays:
+                self._active_rays.append(active_seg_rays)
+            
+            # compile finished_rays
+            if self.compile_finished_rays:
+                finished_seg_rays = {}
+                is_finished_seg = tf.logical_and(
+                    seg_proj["valid"],
+                    tf.equal(seg_boundary_type, TARGET)
                 )
                 for field in input_ray_fields:
-                    active_arc_rays[field] = tf.boolean_mask(
+                    finished_seg_rays[field] = tf.boolean_mask(
                         input_rays[field],
-                        is_active_arc
+                        is_finished_seg
                     )
-                if self.compile_active_rays:
-                    self._active_rays.append(active_arc_rays)
-
-                # compile finished_rays
-                if self.compile_finished_rays:
-                    finished_arc_rays = {}
-                    is_finished_arc = tf.logical_and(
-                        arc_proj["valid"],
-                        tf.equal(arc_boundary_type, TARGET)
-                    )
-                    for field in input_ray_fields:
-                        finished_arc_rays[field] = tf.boolean_mask(
-                            input_rays[field],
-                            is_finished_arc
-                        )
-                    self._finished_rays.append(finished_arc_rays)
+                self._finished_rays.append(finished_seg_rays)
                         
-                # compile stopped_rays
-                if self.compile_stopped_rays:
-                    stopped_arc_rays = {}
-                    is_stopped_arc = tf.logical_and(
-                        arc_proj["valid"],
-                        tf.equal(arc_boundary_type, STOP)
-                    )
-                    for field in input_ray_fields:
-                        stopped_arc_rays[field] = tf.boolean_mask(
-                            input_rays[field],
-                            is_stopped_arc
-                        )
-                    self._stopped_rays.append(stopped_arc_rays)
-                               
-                # compile optical boundaries
-                gather_optical_arc = tf.boolean_mask(
-                    arc_proj["gather_arc"],
-                    is_active_arc
+            # compile stopped_rays
+            if self.compile_stopped_rays:
+                stopped_seg_rays = {}
+                is_stopped_seg = tf.logical_and(
+                    seg_proj["valid"],
+                    tf.equal(seg_boundary_type, STOP)
                 )
-                optical_arcs = {
-                    field: tf.gather(
-                        self.optical_system._amalgamated_optical_arcs[field],
-                        gather_optical_arc
+                for field in input_ray_fields:
+                    stopped_seg_rays[field] = tf.boolean_mask(
+                        input_rays[field],
+                        is_stopped_seg
                     )
-                    for field in self.optical_system._amalgamated_optical_arcs.keys()
+                self._stopped_rays.append(stopped_seg_rays)
+                        
+            # compile optical boundaries
+            gather_optical_segment = tf.boolean_mask(
+                seg_proj["gather_segment"],
+                is_active_seg
+            )
+            optical_segments = {
+                field: tf.gather(
+                    self.optical_system._amalgamated_optical_segments[field],
+                    gather_optical_segment
+                )
+                for field in self.optical_system._amalgamated_optical_segments.keys()
+            }
+            optical_seg_norm = tf.boolean_mask(
+                seg_proj["norm"], is_active_seg
+            )
+            try:
+                if optical_seg_norm.shape[0] > 0:
+                    optical_segments["norm"] = optical_seg_norm
+            except(TypeError):
+                optical_segments["norm"] = tf.zeros((0,))
+            
+            # compile techinical boundaries
+            # This step is only performed if the both flags are set.
+            if self.compile_technical_intersections and self.compile_stopped_rays:
+                gather_stop_segment = tf.boolean_mask(
+                    (
+                        seg_proj["gather_segment"] - 
+                        self.optical_system._optical_seg_count
+                    ),
+                    is_stopped_seg
+                )
+                stop_segments = {
+                    field: tf.gather(
+                        self.optical_system._amalgamated_stop_segments[field],
+                        gather_stop_segment
+                    )
+                    for field in self.optical_system._amalgamated_stop_segments.keys()
                 }
-                optical_arc_norm = tf.boolean_mask(
-                    arc_proj["norm"], is_active_arc
+                stop_seg_norm = tf.boolean_mask(
+                    seg_proj["norm"], is_stopped_seg
                 )
                 try:
-                    if optical_arc_norm.shape[0] > 0:
-                        optical_arcs["norm"] = optical_arc_norm
+                    if stop_seg_norm.shape[0] > 0:
+                        stop_segments["norm"] = stop_seg_norm
                 except(TypeError):
-                    optical_arcs["norm"] = tf.zeros((0,)) 
+                    stop_segments["norm"] = tf.zeros((0,)) 
+                
+            if (self.compile_technical_intersections and 
+                self.compile_finished_rays
+            ):
+                gather_target_segment = tf.boolean_mask(
+                    (
+                        seg_proj["gather_segment"] - 
+                        self.optical_system._optical_seg_count -
+                        self.optical_system._stop_seg_count
+                    ),
+                    is_finished_seg
+                )
+                target_segments = {
+                    field: tf.gather(
+                        self.optical_system._amalgamated_target_segments[field],
+                        gather_target_segment
+                    )
+                    for field in \
+                        self.optical_system._amalgamated_target_segments.keys()
+                }
+                finished_seg_norm = tf.boolean_mask(
+                    seg_proj["norm"], is_finished_seg
+                )
+                try:
+                    if finished_seg_norm.shape[0] > 0:
+                        target_segments["norm"] = finished_seg_norm
+                except(TypeError):
+                    target_segments["norm"] = tf.zeros((0,)) 
+                
+            # compile the segment stuff into the segment result
+            if self.compile_geometry_specific_result:
+                result["segment"] = {
+                    "rays": {"active": active_seg_rays},
+                    "optical": optical_segments
+                }
+                if self.compile_finished_rays:
+                    result["segment"]["rays"]["finished"] = \
+                        finished_seg_rays
+                    if self.compile_technical_intersections:
+                        result["segment"]["target"] = \
+                            target_segments
+                if self.compile_stopped_rays:
+                    result["segment"]["rays"]["stopped"] = \
+                        stopped_seg_rays
+                    if self.compile_technical_intersections:
+                        result["segment"]["stop"] = \
+                            stop_segments
+                if self.compile_dead_rays:
+                    result["segment"]["rays"]["dead"] = \
+                        dead_rays
             
-                # compile techinical boundaries
-                # This step is only performed if the both flags are set.
-                if self.compile_technical_intersections and self.compile_stopped_rays:
-                    gather_stop_arc = tf.boolean_mask(
-                        (
-                            arc_proj["gather_arc"] - 
-                            self.optical_system._optical_arc_count
-                        ),
-                        is_stopped_arc
-                    )
-                    stop_arcs = {
-                        field: tf.gather(
-                            self.optical_system._amalgamated_stop_arcs[field],
-                            gather_stop_arc
-                        )
-                        for field in self.optical_system._amalgamated_stop_arcs.keys()
-                    }
-                    stop_arc_norm = tf.boolean_mask(
-                        arc_proj["norm"], is_stopped_arc
-                    )
-                    if stop_arc_norm.shape[0] > 0:
-                        stop_arcs["norm"] = stop_arc_norm
-                    
-                if (self.compile_technical_intersections and 
-                    self.compile_finished_rays
-                ):
-                    gather_target_arc = tf.boolean_mask(
-                        (
-                            arc_proj["gather_arc"] - 
-                            self.optical_system._optical_arc_count -
-                            self.optical_system._stop_arc_count
-                        ),
+        if has_arcs:
+            # update the input_rays with the projections
+            input_rays["x_end"] = tf.where(
+                arc_proj["valid"], arc_proj["x"], input_rays["x_end"]
+            )
+            input_rays["y_end"] = tf.where(
+                arc_proj["valid"], arc_proj["y"], input_rays["y_end"]
+            )
+            
+            # gather the boundary types
+            arc_boundary_type = tf.gather(
+                self.optical_system._merged_arcs["catagory"],
+                arc_proj["gather_arc"]
+            )
+            
+            # compile active_rays
+            active_arc_rays = {}
+            is_active_arc = tf.logical_and(
+                arc_proj["valid"],
+                tf.equal(arc_boundary_type, OPTICAL)
+            )
+            for field in input_ray_fields:
+                active_arc_rays[field] = tf.boolean_mask(
+                    input_rays[field],
+                    is_active_arc
+                )
+            if self.compile_active_rays:
+                self._active_rays.append(active_arc_rays)
+
+            # compile finished_rays
+            if self.compile_finished_rays:
+                finished_arc_rays = {}
+                is_finished_arc = tf.logical_and(
+                    arc_proj["valid"],
+                    tf.equal(arc_boundary_type, TARGET)
+                )
+                for field in input_ray_fields:
+                    finished_arc_rays[field] = tf.boolean_mask(
+                        input_rays[field],
                         is_finished_arc
                     )
-                    target_arcs = {
-                        field: tf.gather(
-                            self.optical_system._amalgamated_target_arcs[field],
-                            gather_target_arc
-                        )
-                        for field in self.optical_system._amalgamated_target_arcs.keys()
-                    }
-                    finished_arc_norm = tf.boolean_mask(
-                        arc_proj["norm"], is_finished_arc
+                self._finished_rays.append(finished_arc_rays)
+                    
+            # compile stopped_rays
+            if self.compile_stopped_rays:
+                stopped_arc_rays = {}
+                is_stopped_arc = tf.logical_and(
+                    arc_proj["valid"],
+                    tf.equal(arc_boundary_type, STOP)
+                )
+                for field in input_ray_fields:
+                    stopped_arc_rays[field] = tf.boolean_mask(
+                        input_rays[field],
+                        is_stopped_arc
                     )
+                self._stopped_rays.append(stopped_arc_rays)
+                           
+            # compile optical boundaries
+            gather_optical_arc = tf.boolean_mask(
+                arc_proj["gather_arc"],
+                is_active_arc
+            )
+            optical_arcs = {
+                field: tf.gather(
+                    self.optical_system._amalgamated_optical_arcs[field],
+                    gather_optical_arc
+                )
+                for field in self.optical_system._amalgamated_optical_arcs.keys()
+            }
+            optical_arc_norm = tf.boolean_mask(
+                arc_proj["norm"], is_active_arc
+            )
+            try:
+                if optical_arc_norm.shape[0] > 0:
+                    optical_arcs["norm"] = optical_arc_norm
+            except(TypeError):
+                optical_arcs["norm"] = tf.zeros((0,)) 
+        
+            # compile techinical boundaries
+            # This step is only performed if the both flags are set.
+            if self.compile_technical_intersections and self.compile_stopped_rays:
+                gather_stop_arc = tf.boolean_mask(
+                    (
+                        arc_proj["gather_arc"] - 
+                        self.optical_system._optical_arc_count
+                    ),
+                    is_stopped_arc
+                )
+                stop_arcs = {
+                    field: tf.gather(
+                        self.optical_system._amalgamated_stop_arcs[field],
+                        gather_stop_arc
+                    )
+                    for field in self.optical_system._amalgamated_stop_arcs.keys()
+                }
+                stop_arc_norm = tf.boolean_mask(
+                    arc_proj["norm"], is_stopped_arc
+                )
+                try:
+                    if stop_arc_norm.shape[0] > 0:
+                        stop_arcs["norm"] = stop_arc_norm
+                except(TypeError):
+                    stop_arcs["norm"] = tf.zeros((0,)) 
+                
+            if (self.compile_technical_intersections and 
+                self.compile_finished_rays
+            ):
+                gather_target_arc = tf.boolean_mask(
+                    (
+                        arc_proj["gather_arc"] - 
+                        self.optical_system._optical_arc_count -
+                        self.optical_system._stop_arc_count
+                    ),
+                    is_finished_arc
+                )
+                target_arcs = {
+                    field: tf.gather(
+                        self.optical_system._amalgamated_target_arcs[field],
+                        gather_target_arc
+                    )
+                    for field in self.optical_system._amalgamated_target_arcs.keys()
+                }
+                finished_arc_norm = tf.boolean_mask(
+                    arc_proj["norm"], is_finished_arc
+                )
+                try:
                     if finished_arc_norm.shape[0] > 0:
                         target_arcs["norm"] = finished_arc_norm
-                    
-                # compile the arc stuff into the arc result
-                if self.compile_geometry_specific_result:
-                    result["arc"] = {
-                        "rays": {"active": active_arc_rays},
-                        "optical": optical_arcs
-                    }
-                    if self.compile_finished_rays:
-                        result["arc"]["rays"]["finished"] = \
-                            finished_arc_rays
-                        if self.compile_technical_intersections:
-                            result["arc"]["target"] = \
-                                target_arcs
-                    if self.compile_stopped_rays:
-                        result["arc"]["rays"]["stopped"] = \
-                            stopped_arc_rays
-                        if self.compile_technical_intersections:
-                            result["arc"]["stop"] = \
-                                stop_arcs
-                    if self.compile_dead_rays:
-                        result["arc"]["rays"]["dead"] = \
-                            dead_rays
-            
-            # compile into the unified result
-            if has_segments and not has_arcs:
-                # has only segments
-                result["rays"] = {"active": active_seg_rays}
-                result["optical"] = optical_segments
-                if self.compile_finished_rays:
-                    result["rays"]["finished"] = finished_seg_rays
-                    if self.compile_technical_intersections:
-                        result["target"] = target_segments
-                if self.compile_stopped_rays:
-                    result["rays"]["stopped"] = stopped_seg_rays
-                    if self.compile_technical_intersections:
-                        result["stop"] = stop_segments
+                except(TypeError):
+                    target_arcs["norm"] = tf.zeros((0,)) 
                 
-            elif has_arcs and not has_segments:
-                # has only arcs
-                result["rays"] = {"active": active_arc_rays}
-                result["optical"] = optical_arcs
-                if self.compile_finished_rays:
-                    result["rays"]["finished"] = finished_arc_rays
-                    if self.compile_technical_intersections:
-                        result["target"] = target_arcs
-                if self.compile_stopped_rays:
-                    result["rays"]["stopped"] = stopped_arc_rays
-                    if self.compile_technical_intersections:
-                        result["stop"] = stop_arcs
-            else:
-                # has both, so the whole arc and segment thing has to be concatenated
-                ray_sig = active_seg_rays.keys()
-                result["rays"] = {
-                    "active": amalgamate(
-                        [active_seg_rays, active_arc_rays]
-                    )
+            # compile the arc stuff into the arc result
+            if self.compile_geometry_specific_result:
+                result["arc"] = {
+                    "rays": {"active": active_arc_rays},
+                    "optical": optical_arcs
                 }
-                result["optical"] = amalgamate(
-                    [optical_arcs, optical_segments]
-                )
                 if self.compile_finished_rays:
-                    result["rays"]["finished"] = amalgamate(
-                        [finished_seg_rays, finished_arc_rays]
-                    )
+                    result["arc"]["rays"]["finished"] = \
+                        finished_arc_rays
                     if self.compile_technical_intersections:
-                        result["target"] = amalgamate(
-                        [target_arcs, target_segments]
-                    )
+                        result["arc"]["target"] = \
+                            target_arcs
                 if self.compile_stopped_rays:
-                    result["rays"]["stopped"] = amalgamate(
-                        [stopped_seg_rays, stopped_arc_rays]
-                    )
+                    result["arc"]["rays"]["stopped"] = \
+                        stopped_arc_rays
                     if self.compile_technical_intersections:
-                        result["stop"] = amalgamate(
-                        [stop_arcs, stop_segments]
-                    )
-                    
-            if self.compile_dead_rays:
-                result["rays"]["dead"] = dead_rays
+                        result["arc"]["stop"] = \
+                            stop_arcs
+                if self.compile_dead_rays:
+                    result["arc"]["rays"]["dead"] = \
+                        dead_rays
+        
+        # compile into the unified result
+        if has_segments and not has_arcs:
+            # has only segments
+            result["rays"] = {"active": active_seg_rays}
+            result["optical"] = optical_segments
+            if self.compile_finished_rays:
+                result["rays"]["finished"] = finished_seg_rays
+                if self.compile_technical_intersections:
+                    result["target"] = target_segments
+            if self.compile_stopped_rays:
+                result["rays"]["stopped"] = stopped_seg_rays
+                if self.compile_technical_intersections:
+                    result["stop"] = stop_segments
             
-            return result
+        elif has_arcs and not has_segments:
+            # has only arcs
+            result["rays"] = {"active": active_arc_rays}
+            result["optical"] = optical_arcs
+            if self.compile_finished_rays:
+                result["rays"]["finished"] = finished_arc_rays
+                if self.compile_technical_intersections:
+                    result["target"] = target_arcs
+            if self.compile_stopped_rays:
+                result["rays"]["stopped"] = stopped_arc_rays
+                if self.compile_technical_intersections:
+                    result["stop"] = stop_arcs
+        else:
+            # has both, so the whole arc and segment thing has to be concatenated
+            ray_sig = active_seg_rays.keys()
+            result["rays"] = {
+                "active": amalgamate(
+                    [active_seg_rays, active_arc_rays]
+                )
+            }
+            result["optical"] = amalgamate(
+                [optical_arcs, optical_segments]
+            )
+            if self.compile_finished_rays:
+                result["rays"]["finished"] = amalgamate(
+                    [finished_seg_rays, finished_arc_rays]
+                )
+                if self.compile_technical_intersections:
+                    result["target"] = amalgamate(
+                    [target_arcs, target_segments]
+                )
+            if self.compile_stopped_rays:
+                result["rays"]["stopped"] = amalgamate(
+                    [stopped_seg_rays, stopped_arc_rays]
+                )
+                if self.compile_technical_intersections:
+                    result["stop"] = amalgamate(
+                    [stop_arcs, stop_segments]
+                )
+                
+        if self.compile_dead_rays:
+            result["rays"]["dead"] = dead_rays
+        
+        return result
             
     def process_projection_3D(self, input_rays):
-        raise NotImplementedError("3D not currently implemented.")
+        """
+        Project input_rays into the optical system, and process the results.
+        
+        Please note that this function will change input_rays (by projecting them to the
+        boundary), so this function should not be applied to a source, but rather to 
+        a copy of a source.
+        
+        This function will sort and gather the rays input to it into four sets:
+        active_rays, dead_rays, stopped_rays, and finished_rays.  These sets will returned 
+        and will also be concatenated to the class attributes of the same name, storing 
+        the full ray history, but only if the corresponding compile flag is set.  
+        Active_rays are always compiled, but may not be concatenated to the history.
+        
+        The profile for a result (the dict at current_pass_result) is:
+        rays : a dict containing...
+            active : rays that interacted with an optical surface
+            finished : rays that hit a target surface
+            stopped : rays that hit a stop
+            dead : rays that hit nothing
+        optical : the optical surfaces.
+        target : the target surfaces.
+        stop : the stop surfaces.
+            
+        Unlike the 2D case where arcs and segments cannot be fully merged, the surface
+        dicts will contain all of the data for the surfaces.  There are no geometry 
+        specific results because there is only one geometry.
+        """
+        if not bool(self.optical_system):
+            return {}
+        if self.dimension != 3:
+            raise RuntimeError("Should not call 3D function on 2D system")
+            
+        result = {"rays": {}}
+        active_rays = {}
+        input_ray_fields = input_rays.keys()
+        
+        intersect_result = self.optical_system.intersect(input_rays)
+        
+        # compile dead rays
+        if self.compile_dead_rays:
+            dead_rays = {}
+            is_dead = tf.logical_not(intersect_result["valid"])
+            for field in input_ray_fields:
+                dead_rays[field] = tf.boolean_mask(
+                    input_rays[field],
+                    is_dead
+                )
+            if bool(self.dead_ray_length):
+                # change the length of the dead rays
+                dead_rays["x_end"] = dead_rays["x_start"] + \
+                    self.dead_ray_length * (dead_rays["x_end"] - 
+                    dead_rays["x_start"])
+                dead_rays["y_end"] = dead_rays["y_start"] + \
+                    self.dead_ray_length * (dead_rays["y_end"] - 
+                    dead_rays["y_start"])
+                dead_rays["z_end"] = dead_rays["z_start"] + \
+                    self.dead_ray_length * (dead_rays["z_end"] - 
+                    dead_rays["z_start"])
+                    
+            self._dead_rays.append(dead_rays)
+            result["rays"]["dead"] = dead_rays
+
+        # update the input_rays with the projections
+        input_rays["x_end"] = tf.where(
+            intersect_result["valid"], intersect_result["x"], input_rays["x_end"]
+        )
+        input_rays["y_end"] = tf.where(
+            intersect_result["valid"], intersect_result["y"], input_rays["y_end"]
+        )
+        input_rays["z_end"] = tf.where(
+            intersect_result["valid"], intersect_result["z"], input_rays["z_end"]
+        )
+        
+        # gather the boundary types
+        boundary_type = tf.gather(
+            self.optical_system._merged["catagory"], 
+            intersect_result["gather_trig"]
+        )
+        
+        # compile active_rays
+        active_rays = {}
+        is_active = tf.logical_and(
+            intersect_result["valid"],
+            tf.equal(boundary_type, OPTICAL)
+        )
+        for field in input_ray_fields:
+            active_rays[field] = tf.boolean_mask(
+                input_rays[field],
+                is_active
+            )
+        if self.compile_active_rays:
+            self._active_rays.append(active_rays)
+        result["rays"]["active"] = active_rays
+        
+        # compile finished_rays
+        if self.compile_finished_rays:
+            finished_rays = {}
+            is_finished = tf.logical_and(
+                intersect_result["valid"],
+                tf.equal(boundary_type, TARGET)
+            )
+            for field in input_ray_fields:
+                finished_rays[field] = tf.boolean_mask(
+                    input_rays[field],
+                    is_finished
+                )
+            self._finished_rays.append(finished_rays)
+            result["rays"]["finished"] = finished_rays
+                    
+        # compile stopped_rays
+        if self.compile_stopped_rays:
+            stopped_rays = {}
+            is_stopped = tf.logical_and(
+                intersect_result["valid"],
+                tf.equal(boundary_type, STOP)
+            )
+            for field in input_ray_fields:
+                stopped_rays[field] = tf.boolean_mask(
+                    input_rays[field],
+                    is_stopped
+                )
+            self._stopped_rays.append(stopped_rays)
+            result["rays"]["stopped"] = stopped_rays
+                    
+        # compile optical boundaries
+        gather_optical = tf.boolean_mask(
+            intersect_result["gather_trig"],
+            is_active
+        )
+        optical = {
+            field: tf.gather(
+                self.optical_system._amalgamated_optical[field],
+                gather_optical
+            )
+            for field in self.optical_system._amalgamated_optical.keys()
+        }
+        optical_norm = tf.boolean_mask(
+            intersect_result["norm"], is_active
+        )
+        try:
+            if optical_norm.shape[0] > 0:
+                optical["norm"] = optical_norm
+        except(TypeError):
+            optical["norm"] = tf.zeros((0,))
+        result["optical"] = optical
+        
+        # compile techinical boundaries
+        # This step is only performed if the both flags are set.
+        if self.compile_technical_intersections and self.compile_stopped_rays:
+            gather_stop = tf.boolean_mask(
+                (
+                    intersect_result["gather_trig"] - 
+                    self.optical_system._optical_count
+                ),
+                is_stopped
+            )
+            stop = {
+                field: tf.gather(
+                    self.optical_system._amalgamated_stop[field],
+                    gather_stop
+                )
+                for field in self.optical_system._amalgamated_stop.keys()
+            }
+            stop_norm = tf.boolean_mask(
+                intersect_result["norm"], is_stopped
+            )
+            try:
+                if stop_norm.shape[0] > 0:
+                    stop["norm"] = stop_norm
+            except(TypeError):
+                stop["norm"] = tf.zeros((0,))
+            result["stop"] = stop
+            
+        if (self.compile_technical_intersections and 
+            self.compile_finished_rays
+        ):
+            gather_target = tf.boolean_mask(
+                (
+                    intersect_result["gather_trig"] - 
+                    self.optical_system._optical_count -
+                    self.optical_system._stop_count
+                ),
+                is_finished
+            )
+            target = {
+                field: tf.gather(
+                    self.optical_system._amalgamated_target[field],
+                    gather_target
+                )
+                for field in \
+                    self.optical_system._amalgamated_target.keys()
+            }
+            finished_norm = tf.boolean_mask(
+                intersect_result["norm"], is_finished
+            )
+            try:
+                if finished_norm.shape[0] > 0:
+                    target["norm"] = finished_norm
+            except(TypeError):
+                target["norm"] = tf.zeros((0,))
+            result["target"] = target
+            
+        return result
         
     def single_pass(self, input_rays):
+        if not bool(self.optical_system):
+            return {}
+    
         self.last_projection_result = self.process_projection(input_rays)
         
         # need to cull results that appear present but are actually empty 
@@ -1758,7 +2309,11 @@ class OpticalEngine:
             The maximum number of passes that the tracer will execute on a system, before
             stopping.  Will stop early if there are no more active rays left to trace.):
         """
-        starting_rays = self.optical_system._amalgamated_sources
+        if not bool(self.optical_system):
+            return
+        
+        self.clear_ray_history()    
+        starting_rays = self.optical_system._amalgamated_sources.copy()
         for i in range(max_iterations):
             result = self.single_pass(starting_rays)
             

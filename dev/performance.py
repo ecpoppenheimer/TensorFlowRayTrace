@@ -10,7 +10,6 @@ import tfrt.distributions as distributions
 import tfrt.boundaries as boundaries
 import tfrt.drawing as drawing
 import tfrt.materials as materials
-import tfrt.TFRayTrace as ray_trace
 import tfrt.engine as eng
 import tfrt.sources as sources
 import tfrt.operation as op

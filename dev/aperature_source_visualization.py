@@ -7,7 +7,6 @@ import tfrt.sources as sources
 import tfrt.distributions as distributions
 import tfrt.drawing as drawing
 import tfrt.materials as materials
-import tfrt.TFRayTrace as ray_trace
 
 PI = sources.PI
 
@@ -52,7 +51,7 @@ if __name__ == "__main__":
     )"""
 
     # set up drawer
-    drawer = drawing.RayDrawer(ax)
+    drawer = drawing.RayDrawer2D(ax)
     drawer.rays = source
     drawer.draw()
 

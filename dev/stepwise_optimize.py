@@ -68,6 +68,19 @@ def single_step(engine, learning_rate, momentum, parameter, optimizer, grad_clip
     print(f"step {optimizer.iterations.numpy()} error: {error.numpy()}")
     optimizer.apply_gradients([(grad, parameter)])
     
+def self_scaling_step(engine, ray_drawer, arc_drawer, parameter, optimizer):
+    step_count = optimizer.iterations
+    if step_count < 20:
+        single_step(engine, 1.0, .8, parameter, optimizer)
+        redraw(engine, ray_drawer, arc_drawer)
+    else:
+        single_step(engine, .1, .9, parameter, optimizer)
+        redraw(engine, ray_drawer, arc_drawer)
+        
+def on_key(event, engine, ray_drawer, arc_drawer, parameter, optimizer):
+    if event.key == "n":
+        self_scaling_step(engine, ray_drawer, arc_drawer, parameter, optimizer)
+    
 
 if __name__ == "__main__":
     drawing.disable_figure_key_commands()
@@ -94,7 +107,7 @@ if __name__ == "__main__":
     beam_points = distributions.StaticUniformBeam(-1.5, 1.5, 10)
     angles = distributions.StaticUniformAngularDistribution(0, 0, 1)
     source = sources.AngularSource(
-        2, (-1.0, 0.0), 0.0, angles, beam_points, drawing.RAINBOW_6
+        (-1.0, 0.0), 0.0, angles, beam_points, drawing.RAINBOW_6
     )
     source.frozen=True
     
@@ -111,7 +124,7 @@ if __name__ == "__main__":
     trace_engine = eng.OpticalEngine(
         2,
         [op.StandardReaction()],
-        simple_ray_inheritance={"wavelength"}
+        simple_ray_inheritance={"angle_ranks", "wavelength"}
     )
     trace_engine.optical_system = system
     system.update()
@@ -142,15 +155,15 @@ if __name__ == "__main__":
         nesterov=True
     )
     
-    # training loop
-    for i in range(30):
-        single_step(trace_engine, 1.0, .8, parameter, optimizer)
-        redraw(trace_engine, ray_drawer, arc_drawer)
-    for i in range(50):
-        single_step(trace_engine, .1, .9, parameter, optimizer)
-        redraw(trace_engine, ray_drawer, arc_drawer)
-        
+    # initial state draw    
     system.update()
     redraw(trace_engine, ray_drawer, arc_drawer)
     
+    # hand over to user
+    fig.canvas.mpl_connect(
+        "key_press_event",
+        lambda event: on_key(
+            event, trace_engine, ray_drawer, arc_drawer, parameter, optimizer
+        ),
+    )
     plt.show() 

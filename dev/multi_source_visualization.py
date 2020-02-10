@@ -6,7 +6,6 @@ import tensorflow as tf
 import tfrt.sources as sources
 import tfrt.drawing as drawing
 import tfrt.materials as materials
-import tfrt.TFRayTrace as ray_trace
 import tfrt.engine as engine
 import tfrt.distributions as distributions
 
@@ -131,7 +130,7 @@ if __name__ == "__main__":
     session.run(tf.global_variables_initializer())"""
 
     # set up drawer
-    drawer = drawing.RayDrawer(ax)
+    drawer = drawing.RayDrawer2D(ax)
     drawer.rays = optical_system.sources
     drawer.draw()
 

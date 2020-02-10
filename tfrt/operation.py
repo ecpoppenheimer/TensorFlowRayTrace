@@ -255,18 +255,17 @@ class StandardReaction(RayOperation):
     def main(self, engine, proj_result):
         if "active" not in proj_result["rays"].keys():
             return {}
-        
         rays = proj_result["rays"]["active"]
         
         if self._refractive_index_type == "index":
-            mat_in = proj_result["optical"]["mat_in"]
-            mat_out = proj_result["optical"]["mat_out"]
+            mat_in = tf.cast(proj_result["optical"]["mat_in"], tf.int64)
+            mat_out = tf.cast(proj_result["optical"]["mat_out"], tf.int64)
             wavelength = rays["wavelength"]
             
             n_stack = tf.stack(
                 [mat["n"](wavelength) for mat in engine.optical_system.materials]
             )
-            ray_range = tf.range(tf.shape(rays["x_start"])[0], dtype=tf.int64)
+            ray_range = tf.cast(tf.range(tf.shape(rays["x_start"])[0]), tf.int64)
             n_in_indices = tf.stack([mat_in, ray_range], axis=1)
             n_out_indices = tf.stack([mat_out, ray_range], axis=1)
             n_in = tf.gather_nd(n_stack, n_in_indices)
@@ -276,18 +275,35 @@ class StandardReaction(RayOperation):
             n_out = proj_result["optical"]["n_out"]
         
         new_rays = {}
-        new_rays["x_start"], new_rays["y_start"], new_rays["x_end"], new_rays["y_end"] =\
-            geometry.snells_law(
-                rays["x_start"],
-                rays["y_start"],
-                rays["x_end"], 
-                rays["y_end"],
-                proj_result["optical"]["norm"],
-                n_in,
-                n_out,
-                engine.new_ray_length
-            )
+        if engine.dimension == 2:
+            new_rays["x_start"], new_rays["y_start"], new_rays["x_end"], \
+                new_rays["y_end"] = geometry.snells_law_2D(
+                    rays["x_start"],
+                    rays["y_start"],
+                    rays["x_end"], 
+                    rays["y_end"],
+                    proj_result["optical"]["norm"],
+                    n_in,
+                    n_out,
+                    engine.new_ray_length
+                )
+        else: #engine.dimension == 3
+            new_rays["x_start"], new_rays["y_start"], new_rays["z_start"], \
+                new_rays["x_end"], new_rays["y_end"], new_rays["z_end"] = \
+                geometry.snells_law_3D(
+                    rays["x_start"],
+                    rays["y_start"],
+                    rays["z_start"],
+                    rays["x_end"], 
+                    rays["y_end"],
+                    rays["z_end"],
+                    proj_result["optical"]["norm"],
+                    n_in,
+                    n_out,
+                    engine.new_ray_length
+                )
         valid = tf.broadcast_to(True, tf.shape(rays["x_end"]))
+        
         return {"active": {"rays": new_rays, "valid": valid}}
         
 # -------------------------------------------------------------------------------------
@@ -298,7 +314,10 @@ class GhostThrough(RayOperation):
     """   
     
     def main(self, engine, proj_result):
+        if "active" not in proj_result["rays"].keys():
+            return {}
         rays = proj_result["rays"]["active"]
+        
         new_rays = {
             "x_start": rays["x_end"],
             "y_start": rays["y_end"],
@@ -306,7 +325,13 @@ class GhostThrough(RayOperation):
             "y_end": 2 * rays["y_end"] - rays["y_start"]
         }
         valid = tf.broadcast_to(True, tf.shape(rays["x_end"]))
+        
+        if engine.dimension == 3:
+            new_rays["z_start"] = rays["z_start"]
+            new_rays["z_end"] = 2 * rays["z_end"] - rays["z_start"]
+        
         return {"active": {"rays": new_rays, "valid": valid}}
+            
 
     
     

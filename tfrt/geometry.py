@@ -9,7 +9,7 @@ import tensorflow as tf
 
 # =====================================================================================
 
-@tf.function(
+"""@tf.function(
     input_signature=[
         tf.TensorSpec(shape=(None,), dtype=tf.float64),
         tf.TensorSpec(shape=(None,), dtype=tf.float64),
@@ -22,7 +22,7 @@ import tensorflow as tf
         tf.TensorSpec(shape=(), dtype=tf.float64),
         
     ]
-)
+)"""
 def line_intersect(x1s, y1s, x1e, y1e, x2s, y2s, x2e, y2e, epsilion):
     """
     Given a set of N lines and a second set of M lines, computes all NxM intersections
@@ -78,7 +78,7 @@ def line_intersect(x1s, y1s, x1e, y1e, x2s, y2s, x2e, y2e, epsilion):
 
 # -------------------------------------------------------------------------------------
 
-@tf.function(
+"""@tf.function(
     input_signature=[
         tf.TensorSpec(shape=None, dtype=tf.float64),
         tf.TensorSpec(shape=None, dtype=tf.float64),
@@ -91,7 +91,7 @@ def line_intersect(x1s, y1s, x1e, y1e, x2s, y2s, x2e, y2e, epsilion):
         tf.TensorSpec(shape=(), dtype=tf.float64),
         
     ]
-)
+)"""
 def raw_line_intersect(x1s, y1s, x1e, y1e, x2s, y2s, x2e, y2e, epsilion):
     """
     Low-level core math used to find intersections between two sets of lines.
@@ -164,11 +164,164 @@ def raw_line_intersect(x1s, y1s, x1e, y1e, x2s, y2s, x2e, y2e, epsilion):
     # y = y2s + v * y2
 
     return x, y, valid_intersection, u, v
+    
+# ====================================================================================
+
+"""@tf.function(
+    input_signature=[
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(None,), dtype=tf.float64),
+        tf.TensorSpec(shape=(), dtype=tf.float64)
+    ]
+)"""    
+def line_triangle_intersect(
+    rx1, ry1, rz1, rx2, ry2, rz2, xp, yp, zp, x1, y1, z1, x2, y2, z2, epsilion
+):
+    """
+    Given a set of N lines and a second set of M triangles, computes all NxM intersections.
+      
+    This function is safe when given input lines that are parallel to the triangle, in 
+    which case there is no intersection.  In this case, the corresponding value in each
+    of the output tensors will be garbage, but the corresponding element in the 
+    valid intersections return (second returned value) will be false, indicating 
+    that this intersection was invalid and its values should be ignored.
+    
+    This function is NOT safe when given malformed triangles, whose edges p1 and 
+    p2 are parallel.
+    
+    Please note that if given N and M inputs, the outputs will have shape (N, M).
+        
+    Parameters
+    ----------
+    first 15 : 1-D tf.float64 tensor-like
+        The endpoints of the first set of lines, as well as the vertices of the triangle
+    epsilion : scalar tf.float64 tensor-like
+        A very small value used to avoid divide by zero, which can happen if the
+        lines are parallel.  If you are getting incorrect results because you have 
+        lines that are extremely close but not actually parallel, you may need to
+        reduce this value from its recommended of 1e-10, but if you make this too small
+        it may incorrectly identify parallel lines as actually intersecting, or
+        will throw a nan into your tensors, which will kill tf.gradients.  As of
+        05/19 I haven't tested how small you can go with this parameter, so lowering
+        it a lot may be perfectly fine.
+        
+    Returns
+    -------
+    x, y, z:
+        float tensors of shape [M, N] holding the coordinates of the intersections.
+    Valid:
+        A bool tensor of shape [M, N] which is true wherever the intersection is valid.
+        Intersections are valid when the lines are not parallel.
+    ray_u:
+        A float tensor of shape [M, N] holding the parameter along each of the first
+        lines where the intersection occurs.
+    trig_u, trig_v:
+        A float tensor of shape [M, N] holding the parameter along two of the sides of the
+        triangle where the intersection occurs
+        
+    """
+
+    rx1_m, xp_m = tf.meshgrid(rx1, xp)
+    ry1_m, yp_m = tf.meshgrid(ry1, yp)
+    rz1_m, zp_m = tf.meshgrid(rz1, zp)
+    rx2_m, x1_m = tf.meshgrid(rx2, x1)
+    ry2_m, y1_m = tf.meshgrid(ry2, y1)
+    rz2_m, z1_m = tf.meshgrid(rz2, z1)
+    _, x2_m = tf.meshgrid(rx2, x2)
+    _, y2_m = tf.meshgrid(ry2, y2)
+    _, z2_m = tf.meshgrid(rz2, z2)
+    
+    return raw_line_triangle_intersect(
+        rx1_m, ry1_m, rz1_m, rx2_m, ry2_m, rz2_m, xp_m, yp_m, zp_m, x1_m, y1_m, z1_m,
+        x2_m, y2_m, z2_m, epsilion
+    )
+    
+# ------------------------------------------------------------------------------------
+
+"""@tf.function(
+    input_signature=[
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=(), dtype=tf.float64)
+    ]
+)"""    
+def raw_line_triangle_intersect(
+    rx1, ry1, rz1, rx2, ry2, rz2, xp, yp, zp, x1, y1, z1, x2, y2, z2, epsilion
+):
+    """
+    Low-level core math used to find intersections between lines and triangles.
+    
+    Like line_triangle_intersect, except its input can be any shape.  Used internally by
+    line_triangle_intersect, which simply meshgrids its input and feeds them to this
+    function.
+    """
+    # I computed the algbra on Wolfram Alpha, sorry for the variable names
+    a = rx1-rx2
+    b = x1-xp
+    c = x2-xp
+    d = ry1-ry2
+    f = y1-yp
+    g = y2-yp
+    h = rz1-rz2
+    k = z1-zp
+    l = z2-zp
+    
+    q = rx1-xp
+    r = ry1-yp
+    s = rz1-zp
+    
+    denominator = a*g*k+b*d*l+c*f*h-a*f*l-b*g*h-c*d*k
+    ray_u_numerator = b*l*r+c*f*s+g*k*q-b*g*s-c*k*r-f*l*q
+    trig_u_numerator = a*g*s+c*h*r+d*l*q-a*l*r-c*d*s-g*h*q
+    trig_v_numerator = a*k*r+b*d*s+f*h*q-a*f*s-b*h*r-d*k*q
+    
+    # safe division
+    valid = tf.greater_equal(tf.abs(denominator), epsilion)
+    safe_value = tf.ones_like(rx1)
+    safe_denominator = tf.where(valid, denominator, safe_value)
+    ray_u = ray_u_numerator / safe_denominator
+    trig_u = trig_u_numerator / safe_denominator
+    trig_v = trig_v_numerator / safe_denominator
+    
+    # use ray_u and the ray to compute the intersection point
+    # these use - instead of + because the definitions for a,d,h are reversed, because
+    # they swapped sides of the equation.
+    x = rx1 - ray_u * a
+    y = ry1 - ray_u * d
+    z = rz1 - ray_u * h
+    
+    return x, y, z, valid, ray_u, trig_u, trig_v
 
 
 # =====================================================================================
 
-@tf.function(
+"""@tf.function(
     input_signature=[
         tf.TensorSpec(shape=(None,), dtype=tf.float64),
         tf.TensorSpec(shape=(None,), dtype=tf.float64),
@@ -180,7 +333,7 @@ def raw_line_intersect(x1s, y1s, x1e, y1e, x2s, y2s, x2e, y2e, epsilion):
         tf.TensorSpec(shape=(), dtype=tf.float64),
         
     ]
-)
+)"""
 def line_circle_intersect(xs, ys, xe, ye, xc, yc, r, epsilion):
     """
     Given a set of N lines and a second set of M circles, computes all 2*NxM
@@ -250,7 +403,7 @@ def line_circle_intersect(xs, ys, xe, ye, xc, yc, r, epsilion):
 
 # -------------------------------------------------------------------------------------
 
-@tf.function(
+"""@tf.function(
     input_signature=[
         tf.TensorSpec(shape=None, dtype=tf.float64),
         tf.TensorSpec(shape=None, dtype=tf.float64),
@@ -262,7 +415,7 @@ def line_circle_intersect(xs, ys, xe, ye, xc, yc, r, epsilion):
         tf.TensorSpec(shape=(), dtype=tf.float64),
         
     ]
-)
+)"""
 def raw_line_circle_intersect(xs, ys, xe, ye, xc, yc, r, epsilion):
     """
     Low-level core math used to find intersections between lines and circles.
@@ -395,7 +548,7 @@ def raw_line_circle_intersect(xs, ys, xe, ye, xc, yc, r, epsilion):
 
 # ====================================================================================
 
-@tf.function(
+"""@tf.function(
     input_signature=[
         tf.TensorSpec(shape=None, dtype=tf.float64),
         tf.TensorSpec(shape=None, dtype=tf.float64),
@@ -407,10 +560,10 @@ def raw_line_circle_intersect(xs, ys, xe, ye, xc, yc, r, epsilion):
         tf.TensorSpec(shape=(), dtype=tf.float64),
         
     ]
-)
-def snells_law(x_start, y_start, x_end, y_end, norm, n_in, n_out, new_ray_length):
+)"""
+def snells_law_2D(x_start, y_start, x_end, y_end, norm, n_in, n_out, new_ray_length):
     """
-    Performs an optical ray reaction (Snell's law).
+    Performs an optical ray reaction (Snell's law) in 2D.
     
     This function assumes that ray intersection and projection has already been 
     performed.  It matches the data in each of its parameters 1-to-1.
@@ -421,9 +574,7 @@ def snells_law(x_start, y_start, x_end, y_end, norm, n_in, n_out, new_ray_length
     compute a refractive reaction.  n_out should not be zero.
     
     This function will generate a new set of rays that are the results from the 
-    optical reaction.  The generated rays will automatically inherit any additional 
-    elements from the last dimension (like wavelength).  The output rays will have 
-    exactly the same shape as the input rays.
+    optical reaction.  The output rays will have exactly the same shape as the input rays.
     
     Parameters
     ----------
@@ -436,7 +587,7 @@ def snells_law(x_start, y_start, x_end, y_end, norm, n_in, n_out, new_ray_length
         The refractive index of the material opposite to the norm.
     n_out : float tensor-like
         The refractive index of the material in which the norm is embedded.
-    new_ray_length : float scalar, optional
+    new_ray_length : float scalar
         The length of new rays generated by this function.
         
     Returns
@@ -471,8 +622,8 @@ def snells_law(x_start, y_start, x_end, y_end, norm, n_in, n_out, new_ray_length
     n_out = tf.broadcast_to(n_out, shape)
     n_out_safe = tf.where(n_out_is_safe, n_out, one)
 
-    n1 = tf.where(n_out_is_safe, n_in / n_out, zero)
-    n2 = tf.where(n_in_is_safe, n_out / n_in, zero)
+    n1 = tf.where(n_out_is_safe, n_in_safe / n_out_safe, zero)
+    n2 = tf.where(n_in_is_safe, n_out_safe / n_in_safe, zero)
     n = tf.where(internal_mask, n1, n2, name="n")
 
     norm = tf.where(
@@ -499,18 +650,119 @@ def snells_law(x_start, y_start, x_end, y_end, norm, n_in, n_out, new_ray_length
     y_end = y_start + new_ray_length * tf.sin(new_angle)
     
     return x_start, y_start, x_end, y_end
+    
+# -----------------------------------------------------------------------------------
 
+"""@tf.function(
+    input_signature=[
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=(None, 3), dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=None, dtype=tf.float64),
+        tf.TensorSpec(shape=(), dtype=tf.float64),
+        
+    ]
+)"""
+def snells_law_3D(
+    x_start, y_start, z_start, x_end, y_end, z_end, norm, n_in, n_out, new_ray_length
+):
+    """
+    Performs an optical ray reaction (Snell's law) in 3D.
+    
+    This function assumes that ray intersection and projection has already been 
+    performed.  It matches the data in each of its parameters 1-to-1.
+    
+    n_in and n_out are the refractive indices of this optical reaction.  They should
+    be floats, and have already been evaluated as a function of wavelength.  If n_in
+    is zero, this function will compute a reflective reaction.  Otherwise it will
+    compute a refractive reaction.  n_out should not be zero.
+    
+    This function will generate a new set of rays that are the results from the 
+    optical reaction.  The output rays will have 
+    exactly the same shape as the input rays.
+    
+    This algorithm is vector based, unlike everything else in the program.  It may well
+    be faster than the 2D implementation.  The algorithm was taken from
+    https://www.staff.science.uu.nl/~kreve101/asci/GAraytracer.pdf.
+    
+    Parameters
+    ----------
+    x_start, y_start, z_start, x_end, y_end, z_end: 1D float tensor-like
+        The endpoints of the rays to react
+    norm : float nx3 tensor-like
+        The surface norm.  Note that this parameter is a full vector rather than a 
+        coordinate like all the others, so it is 2D instead of 1D
+    n_in : float tensor-like
+        The refractive index of the material opposite to the norm.
+    n_out : float tensor-like
+        The refractive index of the material in which the norm is embedded.
+    new_ray_length : float scalar
+        The length of new rays generated by this function.
+        
+    Returns
+    -------
+    x_start, y_start, z_start, x_end, y_end, z_end : float tensor
+        Same shape as the inputs, the newly created rays.
+    
+    """
+    
+    # a vector representing the ray direction.
+    u = tf.stack([x_end-x_start, y_end-y_start, z_end-z_start], axis=1)
+    u = tf.math.l2_normalize(u, axis=1)
+    
+    # need to normalize the norm (it isn't guarenteed to already be normed)
+    n = tf.math.l2_normalize(norm, axis=1)
+    nu = tf.reduce_sum(n*u, axis=1, keepdims=True)
+    
+    # process the index of refraction
+    internal_mask = tf.greater(nu, 0)
+    one = tf.ones_like(n_in)
+    zero = tf.zeros_like(n_in)
+
+    n_in_is_safe = tf.not_equal(n_in, 0.0)
+    n_in_safe = tf.where(n_in_is_safe, n_in, one)
+    n_out_is_safe = tf.not_equal(n_out, 0.0)
+    n_out_safe = tf.where(n_out_is_safe, n_out, one)
+    
+    n1 = tf.reshape(tf.where(n_out_is_safe, n_in_safe / n_out_safe, zero), (-1, 1))
+    n2 = tf.reshape(tf.where(n_in_is_safe, n_out_safe / n_in_safe, zero), (-1, 1))
+    eta = tf.where(internal_mask, n1, n2)
+    nu_eta = eta * nu
+    
+    # compute the refracted vector
+    radicand = 1 - eta*eta + nu_eta*nu_eta
+    do_tir = tf.less(radicand, 0)
+    safe_radicand = tf.where(do_tir, tf.ones_like(radicand), radicand)
+    refract = (tf.sign(nu) * tf.sqrt(safe_radicand) - nu_eta) * n + eta*u
+    
+    # compute the reflected vector
+    reflect = -2 * nu * n + u
+    
+    # choose refraction or reflection
+    reflective_surface = tf.reshape(tf.equal(n_in, 0), (-1, 1))
+    do_reflect = tf.logical_or(do_tir, reflective_surface)
+    new_vector = tf.where(do_reflect, reflect, refract)
+    
+    new_endpoints = tf.stack([x_end, y_end, z_end], axis=1) + new_ray_length * new_vector
+    x, y, z = tf.unstack(new_endpoints, num=3, axis=1)
+    return x_end, y_end, z_end, x, y, z
+    
 
 # ====================================================================================
 
-@tf.function(
+"""@tf.function(
     input_signature=[
         tf.TensorSpec(shape=None, dtype=tf.float64),
         tf.TensorSpec(shape=None, dtype=tf.float64),
         tf.TensorSpec(shape=None, dtype=tf.float64)
         
     ]
-)
+)"""
 def angle_in_interval(angle, start, end):
     """
     Checks whether an angle lies inside a closed angular interval.

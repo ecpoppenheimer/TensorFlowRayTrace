@@ -9,7 +9,6 @@ import tfrt.distributions as distributions
 import tfrt.boundaries as boundaries
 import tfrt.drawing as drawing
 import tfrt.materials as materials
-import tfrt.TFRayTrace as ray_trace
 import tfrt.engine as eng
 import tfrt.sources as sources
 import tfrt.operation as op
@@ -85,7 +84,7 @@ if __name__ == "__main__":
     segment_drawer.segments = system.optical_segments
     segment_drawer.draw()
     
-    ray_drawer = drawing.RayDrawer(ax)
+    ray_drawer = drawing.RayDrawer2D(ax)
     ray_drawer.rays = eng.amalgamate([trace_engine.all_rays, new_rays])
     ray_drawer.draw()
 

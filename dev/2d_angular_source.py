@@ -26,7 +26,7 @@ base_points = distributions.StaticUniformBeam(-.5, .5, next(beam_samples))
 #base_points = distributions.StaticUniformSquare(.1,5,y_size=.3,y_res=10)
 #base_points = distributions.StaticUniformCircle(next(beam_samples))
 source = sources.AngularSource(
-    2, next(center), next(central_angle), angles, base_points, [drawing.YELLOW], dense=True
+    2, next(center), next(central_angle), angles, base_points, [drawing.YELLOW], dense=True,
 )
 
 fig, ax = plt.subplots(1, 1, figsize=(8, 6))
@@ -41,6 +41,10 @@ def redraw():
     drawer.rays = source
     drawer.draw()
     drawing.redraw_current_figure()
+    """print("Source field printout:")
+    for key in source.keys():
+        print(f"{key}: {source[key].shape}")
+    print("----------------------")"""
 redraw()
 
 def toggle_angular_size():
@@ -54,12 +58,14 @@ def toggle_angle_samples():
     val = next(angle_samples)
     print(f"set angle_samples to {val}")
     angles.sample_count = val
+    source.resize()
     redraw()
     
 def toggle_beam_samples():
     val = next(beam_samples)
     print(f"set beam_samples to {val}")
     base_points.sample_count = val
+    source.resize()
     redraw()
     
 def toggle_center():

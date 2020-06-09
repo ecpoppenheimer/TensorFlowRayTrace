@@ -37,6 +37,10 @@ def redraw():
     drawer.rays = source
     drawer.draw()
     drawing.redraw_current_figure()
+    print("Source field printout:")
+    for key in source.keys():
+        print(f"{key}: {source[key].shape}")
+    print("----------------------")
 redraw()
 
 def toggle_angular_size():
@@ -50,6 +54,7 @@ def toggle_sample_count():
     val = next(sample_count)
     print(f"set sample_count to {val}")
     angles.sample_count = val
+    source.resize()
     redraw()
     
 def toggle_center():

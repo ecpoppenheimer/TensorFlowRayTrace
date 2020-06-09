@@ -25,8 +25,6 @@ source = sources.AperatureSource(
     2, start_points, end_points, [drawing.YELLOW], dense=True
 )
 
-print(f"source fields: {source.keys()}")
-
 fig, ax = plt.subplots(1, 1, figsize=(8, 6))
 ax.set_aspect("equal")
 ax.set_xbound(-4, 4)
@@ -39,12 +37,17 @@ def redraw():
     drawer.rays = source
     drawer.draw()
     drawing.redraw_current_figure()
+    print("Source field printout:")
+    for key in source.keys():
+        print(f"{key}: {source[key].shape}")
+    print("----------------------")
 redraw()
 
 def toggle_start_samples():
     val = next(start_samples)
     print(f"set start_samples to {val}")
     start_points.sample_count = val
+    source.resize()
     redraw()
 
 def toggle_start_ends():
@@ -58,6 +61,7 @@ def toggle_end_samples():
     val = next(end_samples)
     print(f"set end_samples to {val}")
     end_points.sample_count = val
+    source.resize()
     redraw()
 
 def toggle_end_ends():

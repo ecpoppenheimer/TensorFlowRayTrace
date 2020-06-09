@@ -58,6 +58,11 @@ def redraw():
         tf.unstack(3 * tf.cast(tf.reshape(source.central_angle, (3, 1)), tf.float64))
     central_angle_drawer.rays = central_angle_ray
     central_angle_drawer.draw()
+    
+    print("Source field printout:")
+    for key in source.keys():
+        print(f"{key}: {source[key].shape}")
+    print("----------------------")
 redraw()
 
 def toggle_angular_size():
@@ -70,6 +75,7 @@ def toggle_sample_count():
     val = next(sample_count)
     print(f"set sample_count to {val}")
     angles.sample_count = val
+    source.resize()
     redraw()
     
 def toggle_center():

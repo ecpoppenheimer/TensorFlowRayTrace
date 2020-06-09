@@ -15,9 +15,12 @@ Please be aware that this module does NOT use tensorflow.  It uses numpy instead
 """
 
 import itertools
+import math
 
 import numpy as np
 import pyvista as pv
+
+PI = math.pi
 
 # =========================================================================================
 
@@ -510,6 +513,114 @@ def visualize_face_updates(plot, mesh, face_updates, color="red"):
     end_points = np.array(end_points)            
     plot.add_arrows(start_points, end_points, color=color)
             
+# =========================================================================================
+
+def circular_mesh(
+    radius,
+    target_edge_size,
+    starting_radius=0,
+    theta_start=0,
+    theta_end=2*PI,
+    join=None 
+):
+    """
+    Generate a circular mesh that is as uniform as possible.
+    """
+    if join is None:
+        join = bool(theta_start==0) and bool(theta_end==2*PI)
+        
+    if starting_radius >= radius:
+        raise ValueError("circular_mesh: starting_radius must be < radius.")
+    
+    # figure out each radius at which we will place points
+    radius_step = target_edge_size * math.sin(PI/3)
+    radius_step_count = max(int(1 + (radius - starting_radius) / radius_step), 2)
+    radius_steps = np.linspace(starting_radius, radius, radius_step_count)
+    
+    # Compute the number of trapezoids each layer will be built from.
+    # (including possibly the degenerate trapezoid that is actually a triangle at the
+    # center of the wedge).
+    trapezoid_count = math.ceil((theta_end - theta_start) / (PI/3))
+    
+    # Compute the number of points along the inner edge of each trapezoid.  This will be
+    # 1 if we are starting at radius 0.
+    if starting_radius != 0:
+        starting_arc_length = radius_steps[0] * (theta_end - theta_start) / trapezoid_count
+        trapezoid_inner_edge_count = math.ceil(starting_arc_length / target_edge_size) + 1
+    else:
+        trapezoid_inner_edge_count = 1
+    starting_angles = np.linspace(
+        theta_start,
+        theta_end,
+        (trapezoid_inner_edge_count - 1) * trapezoid_count + 1
+    )
+    
+    # compute the numbers of triangles in each trapezoid, in the first layer
+    triangles_per_trapezoid = 2 * trapezoid_inner_edge_count - 1
+    
+    # start generating the points
+    points = [
+        (radius_steps[0] * math.cos(angle), radius_steps[0] * math.sin(angle), 0)
+        for angle in starting_angles
+    ]
+    edges = []
+    cumulative_point_count = len(points)
+    new_point_count = cumulative_point_count
+    last_indices = itertools.cycle(range(cumulative_point_count))
+    for radius in radius_steps[1:]:
+        # generate the new points
+        new_points = []
+        new_point_count += trapezoid_count
+        for angle in np.linspace(theta_start, theta_end, new_point_count):
+            new_points.append((radius * math.cos(angle), radius * math.sin(angle), 0))
+        if join:
+            # if the edges are joined, remove the last point, because it should be equal
+            # to the first point.  Since we are using cycle iterators, this happens
+            # automatically!
+            new_points.pop()
+        points += new_points
+        
+        # create iterator for generating the edges.  I am using a cycling iterator to
+        # automatically cover the edge case where we need to join the two sides of
+        # the wedge when the circle is full.
+        new_indices = itertools.cycle(range(
+            cumulative_point_count,
+            cumulative_point_count + len(new_points)
+        ))
+        
+        first = next(new_indices)
+        second = next(last_indices)
+        save_second = second
+        for trapezoid in range(trapezoid_count):
+            choose_outer = True
+            for i in range(triangles_per_trapezoid):
+                if choose_outer:
+                    third = next(new_indices)
+                    edges.append((third, second, first))
+                else:
+                    third = next(last_indices)
+                    edges.append((first, second, third))
+                first = second
+                save_second = second
+                second = third
+                choose_outer = not choose_outer
+            first = third
+            second = save_second
+        
+        # update for the next loop pass
+        last_indices = itertools.cycle(range(
+            cumulative_point_count,
+            cumulative_point_count + len(new_points)
+        ))
+        cumulative_point_count += len(new_points)
+        triangles_per_trapezoid += 2
+        
+    # process the shape of the edges
+    edges = np.array(edges, dtype=np.int64)
+    edges = np.pad(edges, ((0, 0), (1, 0)), mode='constant', constant_values=3)
+    edges = np.reshape(edges, (-1))
+        
+    return np.array(points), edges
             
             
     

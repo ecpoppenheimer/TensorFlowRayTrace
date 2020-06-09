@@ -744,16 +744,14 @@ class SegmentDrawer:
 
                 if self.draw_norm_arrows:
                     self._norm_arrows.append(
-                        self.ax.add_patch(
-                            mpl.patches.Arrow(
-                                (start_x + end_x) / 2.0,
-                                (start_y + end_y) / 2.0,
-                                self.norm_arrow_length * math.cos(theta),
-                                self.norm_arrow_length * math.sin(theta),
-                                width=0.4 * self._norm_arrow_length,
-                                color=self._color,
-                                visible=self._norm_arrow_visibility,
-                            )
+                        plt.arrow(
+                            (start_x + end_x) / 2.0,
+                            (start_y + end_y) / 2.0,
+                            self.norm_arrow_length * math.cos(theta),
+                            self.norm_arrow_length * math.sin(theta),
+                            width=0.4 * self._norm_arrow_length,
+                            color=self._color,
+                            visible=self._norm_arrow_visibility,
                         )
                     )
 
@@ -948,6 +946,81 @@ class TriangleDrawer:
         self._actor = None
             
             
+# ------------------------------------------------------------------------------------
+
+
+class GoalDrawer3D:
+    """
+    Class for visualizing the training goal in 3D, using pyvista.
+    
+    Accepts two sets of points, the resultant output from ray tracing and the optimization 
+    goal points, and draws arrows from the output to the goal.  Display can be turned on and 
+    off.
+    """
+    
+    def __init__(self, plot, visible=True):
+        """
+        plot : pyvista plot
+            The plot object to plot into
+        visible : bool, optional
+            The starting state of the visibility of the goal visualization
+        """
+        self.plot = plot
+        self.output = None
+        self.goal = None
+        self._arrows = None
+        self._visible = visible
+        
+    @property
+    def output(self):
+        return self._output
+        
+    @output.setter
+    def output(self, val):
+        if val is not None:
+            val = np.array(val)
+            if len(val.shape) != 2 or val.shape[1] != 3:
+                raise ValueError("GoalDrawer3D: output must have shape (None, 3).")
+        self._output = val
+        
+    @property
+    def goal(self):
+        return self._goal
+        
+    @goal.setter
+    def goal(self, val):
+        if val is not None:
+            val = np.array(val)
+            if len(val.shape) != 2 or val.shape[1] != 3:
+                raise ValueError("GoalDrawer3D: goal must have shape (None, 3).")
+        self._goal = val
+        
+    @property
+    def visible(self):
+        return self._visible
+        
+    @visible.setter
+    def visible(self, val):
+        if type(val) is bool:
+            self._visible = val
+            self.draw()
+        else:
+            raise ValueError("GoalDrawer3D: visible must be a bool.")
+            
+    def draw(self):
+        self.plot.remove_actor(self._arrows)
+        if self._output is not None and self._goal is not None:
+            if self._visible:
+                outputs = np.array(self._output)
+                goals = np.array(self._goal)
+                
+                points = pv.PolyData(outputs)
+                points.vectors = goals - outputs
+                self._arrows = self.plot.add_mesh(points.arrows)
+                    
+                return
+        self._arrows = None
+        
 # ------------------------------------------------------------------------------------
 
 

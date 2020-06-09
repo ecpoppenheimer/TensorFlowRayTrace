@@ -17,8 +17,8 @@ import tfrt.materials as materials
 PI = tf.constant(pi, dtype=tf.float64)
 
 # set up the imaging problem
-source_distance = 4
-target_distance = 8
+source_distance = 10
+target_distance = 10
 
 # build the optical system
 target = boundaries.ManualTriangleBoundary(mesh=pv.Plane(
@@ -37,11 +37,11 @@ system.materials = [{"n": materials.vacuum}, {"n": materials.acrylic}]
 
 # build the optical surfaces
 first_surface = boundaries.ManualTriangleBoundary(
-    file_name="./stl/optimized_simple_first.stl",
+    file_name="./stl/hexalens_full_first.stl",
     material_dict={"mat_in": 1, "mat_out": 0}
 )
 second_surface = boundaries.ManualTriangleBoundary(
-    file_name="./stl/optimized_simple_second.stl",
+    file_name="./stl/hexalens_full_second.stl",
     material_dict={"mat_in": 1, "mat_out": 0}
 )
 system.optical = [first_surface, second_surface]
@@ -50,7 +50,7 @@ system.optical = [first_surface, second_surface]
 trace_engine = engine.OpticalEngine(
     3,
     [operation.StandardReaction()],
-    simple_ray_inheritance = {"wavelength", "rank"}
+    simple_ray_inheritance = {"wavelength"}
 )
 trace_engine.optical_system = system
 
@@ -84,9 +84,9 @@ if False: # build the f points
     )
     f_points = np.concatenate([backbone, middle, upper])
     f_object = pv.PolyData(f_points)
-    f_object.save("./stl/f_points.vtk")
+    f_object.save("./data/f_points.vtk")
 else: # load the f points from the file
-    f_object = pv.read("./stl/f_points.vtk")
+    f_object = pv.read("./data/f_points.vtk")
 moved_f_object = f_object.copy()
 moved_f_object.translate([-source_distance, 0, 0])
 plot.add_mesh(
@@ -97,7 +97,7 @@ plot.add_mesh(
 )
 
 bp_count = f_object.points.shape[0]
-angle_count = 200
+angle_count = 20
 source_ray_count = bp_count * angle_count
 
 # tile the f points so we can use a non-dense source to make it more random
@@ -106,15 +106,14 @@ f_points = np.tile(f_points, (angle_count, 1))
 
 base_points = distributions.ManualBasePointDistribution(3, points=f_points)
 base_points.ranks = f_points
-angles = distributions.RandomUniformSphere(PI/12, source_ray_count)
+angles = distributions.RandomUniformSphere(PI/36, source_ray_count)
 source = sources.AngularSource(
     3,
     (-source_distance, 0, 0),
     (1, 0, 0),
     angles,
     base_points,
-    [drawing.YELLOW] * source_ray_count,
-    rank_type="base_point",
+    [drawing.YELLOW],
     dense=False
 )
 system.sources = [source]
@@ -123,7 +122,7 @@ system.sources = [source]
 system.update()
 trace_engine.ray_trace(3)
 
-goal = trace_engine.finished_rays["rank"]
+"""goal = trace_engine.finished_rays["rank"]
 goal *= - 2
 goal = goal.numpy()
 goal[:,0] = target_distance*np.ones_like(goal[:,0])
@@ -132,7 +131,7 @@ plot.add_mesh(
     color="red",
     point_size=10,
     render_points_as_spheres=True
-)
+)"""
 
 # display the rays
 ray_drawer = drawing.RayDrawer3D(plot)
@@ -159,13 +158,14 @@ def get_samples(msg_counter=None):
         axis=1
     )
     return output.numpy()
-image_samples = [get_samples(i) for i in range(10)]
+image_samples = [get_samples(i) for i in range(100)]
 image_samples = np.reshape(image_samples, (-1, 2))
+print(f"total rays traced: {image_samples.shape[0]}")
 
-# display a the sampled image as a histogram
+# display the sampled image as a histogram
 fig, ax = plt.subplots(1, 1, figsize=(9, 9))
 ax.set_aspect("equal")
-plt.hist2d(image_samples[:,0], image_samples[:,1], bins=50, range=((-.6, .6), (-.6, .6)))
+plt.hist2d(image_samples[:,0], image_samples[:,1], bins=256, range=((-1, 1), (-1, 1)))
 plt.show()
 
 plot.add_key_event("d", draw_rays)

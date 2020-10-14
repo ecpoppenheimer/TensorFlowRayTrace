@@ -195,7 +195,7 @@ class ManualAngularDistribution(AngularDistributionBase, RecursivelyUpdatable):
         distribution, and can be useful for defining the target destination for each
         ray.  Will be none if ranks were not defined for this distribution.
     
-    Public members
+    Public methods
     --------------
     update()
         Recalculates the values stored by the distribution, if update_function was 
@@ -2032,7 +2032,7 @@ class ArbitraryDistribution:
                     "PointCloudSampler: density function must be a str, a callable, or a "
                     "numpy array"
                 )
-            if density_shape != (2,):
+            if len(density_shape) != 2:
                 raise ValueError("PointCloudSampler: density function must be 2D.")
             self._x_min, self._x_max = evaluation_limits[0]
             self._y_min, self._y_max = evaluation_limits[1]
@@ -2116,7 +2116,7 @@ class ArbitraryDistribution:
 
 # -----------------------------------------------------------------------------------------
 
-class AribitraryBasePoints(BasePointDistributionBase):
+class ArbitraryBasePoints(BasePointDistributionBase):
     """
     Base points that come from a completely arbitrary distribution.
     
@@ -2241,10 +2241,13 @@ class AribitraryBasePoints(BasePointDistributionBase):
             self.base_point_distribution(self._base_x, self._base_y),
             axis=1
         )
-        self._ranks = self.rank_scale_factor * tf.stack(
-            self.rank_distribution(self._base_x, self._base_y),
-            axis=1
-        )
+        if self.rank_distribution is not None:
+            self._ranks = self.rank_scale_factor * tf.stack(
+                self.rank_distribution(self._base_x, self._base_y),
+                axis=1
+            )
+        else:
+            self._ranks = None
         
     def enforce_etendue(self, origin=(0, 0)):
         """
@@ -2272,10 +2275,11 @@ class AribitraryBasePoints(BasePointDistributionBase):
         origin : 2-tuple of floats, optional.
             The x,y coordinates of the point to be used as the center of the distribution.
         """
-        base_etendue = tf.reduce_mean(tf.norm(self._points - origin, axis=1))
-        ranks_etendue = tf.reduce_mean(tf.norm(self._ranks - origin, axis=1))
-        self.rank_scale_factor = base_etendue / ranks_etendue
-        self._ranks *= self.rank_scale_factor
+        if self._ranks is not None:
+            base_etendue = tf.reduce_mean(tf.norm(self._points - origin, axis=1))
+            ranks_etendue = tf.reduce_mean(tf.norm(self._ranks - origin, axis=1))
+            self.rank_scale_factor = base_etendue / ranks_etendue
+            self._ranks *= self.rank_scale_factor
                 
 # =========================================================================================
 

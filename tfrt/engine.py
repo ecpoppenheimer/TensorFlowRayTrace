@@ -1364,6 +1364,14 @@ class OpticalEngine:
     @property
     def dimension(self):
         return self._dimension
+        
+    @property
+    def new_ray_length(self):
+        return self._new_ray_length
+        
+    @new_ray_length.setter
+    def new_ray_length(self, val):
+        self._new_ray_length = tf.constant(val, dtype=tf.float64)
             
     @property
     def optical_system(self):

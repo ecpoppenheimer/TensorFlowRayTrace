@@ -186,7 +186,7 @@ def raw_line_intersect(x1s, y1s, x1e, y1e, x2s, y2s, x2e, y2e, epsilion):
         tf.TensorSpec(shape=(None,), dtype=tf.float64),
         tf.TensorSpec(shape=(), dtype=tf.float64)
     ]
-)"""    
+)"""
 def line_triangle_intersect(
     rx1, ry1, rz1, rx2, ry2, rz2, xp, yp, zp, x1, y1, z1, x2, y2, z2, epsilion
 ):
@@ -270,7 +270,7 @@ def line_triangle_intersect(
         tf.TensorSpec(shape=None, dtype=tf.float64),
         tf.TensorSpec(shape=(), dtype=tf.float64)
     ]
-)"""    
+)"""
 def raw_line_triangle_intersect(
     rx1, ry1, rz1, rx2, ry2, rz2, xp, yp, zp, x1, y1, z1, x2, y2, z2, epsilion
 ):
@@ -652,7 +652,6 @@ def snells_law_2D(x_start, y_start, x_end, y_end, norm, n_in, n_out, new_ray_len
     return x_start, y_start, x_end, y_end
     
 # -----------------------------------------------------------------------------------
-
 """@tf.function(
     input_signature=[
         tf.TensorSpec(shape=None, dtype=tf.float64),

@@ -3,5 +3,5 @@ scipy
 tensorflow
 matplotlib
 pyvista
-tensorflow-graphics
+tensorflow-graphics-gpu
 imageio

@@ -10,6 +10,7 @@ import pyvista as pv
 
 from tfrt.engine import amalgamate
 from tfrt.update import RecursivelyUpdatable
+import tfrt.mesh_tools as mt
 
 # =====================================================================================
 
@@ -1263,7 +1264,314 @@ class ParametricMultiTriangleBoundary(TriangleBoundaryBase):
         
     @property
     def parameters(self):
-        return [surface.parameters for surface in self._surfaces]      
+        return [surface.parameters for surface in self._surfaces]
+        
+# -----------------------------------------------------------------------------------------
+        
+class ParametricCylindricalGuide(TriangleBoundaryBase):
+    """
+    A single closed parametric surface.
+    
+    This class generates a closed cylinder-like surface whose length is fixed but whose
+    width can can change along its axis.  It can be either rotationally symmetric, or not.
+    This is intended for optics that are more like linear light guides than planar optics.
+    
+    This surface will be constrained such so that at least one vertex will always be at
+    mimumum_radius away from the axis.  Other constraints might be added later if this
+    does not work well.
+    
+    This class will generate its own mesh and parameters, and will use only a single 
+    constraint: the mimimum thickness of the optic, since it is intended to be more of a
+    high-level helper class compared to the more general parametric boundaries defined above.
+    
+    If the optic is built rotationally symmetric, parameters will have z_res elements, one
+    for each layer of triangles, and the parameters will encode the radius of the cylinder 
+    at points along the axis.  If the optic is build non-rotationally symmetric, parameters
+    will have z_res * theta_res elements, one for each vertex in the surface (except the
+    end caps), and the value of each parameter encodes the distance between each vertex and 
+    the axis minus the minimum thickness of the optic.
+    
+    The constructor for this class will run mesh_tools.mesh_parametrization_tools to generate
+    an accumulator and vertex update map for the mesh.  The accumulator is available through
+    a class attribute, and the property vertex_update_map will control whether the map is
+    used or disabled.
+    
+    Parameters
+    ----------
+    start : float 3-vector
+        The point on the axis where the cylinder will start.
+    end : float 3-vector
+        The point on the axis where the cylinder will end.
+    minimum_radius : float
+        The radius of the cylinder.  A radius of zero is permissible in case that is how
+        you want to parametrize things.
+    theta_res : int, optional
+        The number of points to place around the diameter of the cylinder.  Defaults to 6.
+    z_res : int, optional
+        The number of points to place along the axis of the cylinder.  Defaults to 8.
+    start_cap : bool, optional
+        Defaults to True, in which case triangles are generated to close the start of the 
+        cylinder.
+    end_cap : bool, optional
+        Defaults to True, in which case triangles are generated to close the end of the 
+        cylinder.
+    use_twist : bool, optional
+        Defaults to True, in which case the triangles will be twisted around the axis each
+        layer.  Does not work well for small angular resolution, but could possibly work 
+        better at high angular resolutions.
+    epsilion : float, optional
+        A small value to compare to to detect zero length vectors.  Defaults to 1e-6.
+        If the distance between end and start is too small, you may need to reduce the size
+        of epsilion.
+    rotationally_symmetric : bool, optional
+        If True, will constrain the optic to be rotationally symmetric.  In this case
+        parameters will have shape (z_res,).  If False, parameters will have shape 
+        (z_res*theta_res,).
+    initial_parameters : float tensor, optional
+        Initial value for the parameters.  Must be broadcastable to shape of the parameters.
+        May be overridden by initial_taper.
+    initial_taper : float 2-tuple, or None
+        Defaults to None, in which case initial_parameters are used instead.  If not None,
+        will ignore initial_parameters and initialize the optic as a tapered cylinder (or
+        a truncated cone).  The first value is the radius at the start, and the second the
+        radius at the end.  One of these values should be equal to minimum radius, since
+        the constraint will be applied after applying these initial conditions, but this
+        isn't strictly necessary.
+    auto_update_mesh : bool, optional
+        Defaults to False.  If true, will automatically update the mesh from the vertices
+        every time update() is called.  This is disabled by default because it wastes time
+        if you don't need to redraw the surface after a step.
+    use_vertex_update_map : bool, optional
+        If True, uses the vertex_update_map.  Can be changed on the fly.
+        
+    Public Read/Write Attributes
+    ----------------------------
+    use_vertex_update_map
+    auto_update_mesh
+    
+    Public Read-Only Attributes
+    ---------------------------
+    accumulator : rank 2 float tensor
+        An accumulator matrix for this surface, which can be used by the optimizer to help
+        smooth out updates to the surface.
+    rotationally_symmetric
+    mesh
+    
+    """
+    def __init__(
+        self,
+        start,
+        end,
+        minimum_radius,
+        theta_res=6,
+        z_res=8,
+        start_cap=True,
+        end_cap=True,
+        rotationally_symmetric=False,
+        initial_parameters=0.0,
+        initial_taper=None,
+        auto_update_mesh=False,
+        use_vertex_update_map=True,
+        **kwargs
+     ):
+        # build the mesh and for a single time extract the vertices and faces from this 
+        # mesh.  This operation will be banned from here on, and the mesh will be a slave of 
+        # the vertices.
+        self._mesh = mt.cylindrical_mesh(
+            start,
+            end,
+            radius=minimum_radius,
+            theta_res=theta_res,
+            z_res=z_res,
+            end_cap=end_cap,
+            start_cap=start_cap,
+            **kwargs
+        )
+        self._zero_points_mesh = self._mesh.copy()
+        self._zero_points = tf.cast(self._mesh.points, tf.float64)
+        self._start_cap = start_cap
+        self._end_cap = end_cap
+        self._update_vertices_from_mesh()
+        
+        # perform the mesh tricks.
+        self._vertex_update_map, self._accumulator = mt.mesh_parametrization_tools(
+            self._mesh,
+            mt.get_closest_point(self._mesh, start)
+        )
+        
+        self.vector_generator = FromAxisVG(start, point=end)
+        self.auto_update_mesh = auto_update_mesh
+        self.reparametrize(self._zero_points)
+        self.use_vertex_update_map = use_vertex_update_map
+        
+        # set up the parameters
+        self._rotationally_symmetric = rotationally_symmetric
+        self._cap_pad = tf.cast([[start_cap, end_cap]], dtype=tf.int64)
+        
+        if self._rotationally_symmetric:
+            parameter_size = (z_res,)
+        else:
+            parameter_size = (z_res * theta_res,)
+        self._param_repeater = [theta_res] * z_res
+            
+        if initial_taper:
+            # ignore initial parameters and generate a taper instead
+            try:
+                taper_start = initial_taper[0]
+                taper_end = initial_taper[1]
+            except(IndexError, TypeError) as e:
+                raise ValueError(
+                    "ParametricCylindricalGuide: initial_taper must be None or a 2-tuple."
+                ) from e
+            initial_parameters = tf.cast(
+                tf.linspace(taper_start, taper_end, z_res),
+                tf.float64
+            )
+            if not self._rotationally_symmetric:
+                initial_parameters = tf.repeat(initial_parameters, self._param_repeater)
+        else:
+            # use initial parameters
+            initial_parameters = tf.cast(
+                tf.broadcast_to(
+                    initial_parameters,
+                    parameter_size
+                ),
+                tf.float64
+            )
+        self.parameters = tf.Variable(
+            initial_parameters,
+            dtype=tf.float64
+        )
+        
+        # we need to explicitly call BoundaryBase's constructor, not TriangleBoundaryBase
+        # because the latter will overwrite self._mesh
+        BoundaryBase.__init__(self, **kwargs)
+        if not self.auto_update_mesh:
+            self.update_mesh_from_vertices()
+        
+    def _generate_update_handles(self):
+        return []
+        
+    def _update(self):
+        self._constraint()
+        parameters = self.parameters
+        if self._rotationally_symmetric:
+            parameters = tf.repeat(parameters, self._param_repeater)
+        parameters = tf.reshape(tf.pad(parameters, self._cap_pad), (-1, 1))
+    
+        self._vertices = self._zero_points + parameters * self._vectors
+        self._prune_vertices()  
+        if self.auto_update_mesh:
+            self.update_mesh_from_vertices()
+        self.update_fields_from_vertices()
+        
+    def _constraint(self):
+        self.parameters.assign_sub(tf.fill(
+            self.parameters.shape,
+            tf.reduce_min(self.parameters)
+        ))
+        
+    def reparametrize(self, zero_points):
+        self._vectors = self.vector_generator.generate(self._zero_points)
+
+    @property
+    def mesh(self):
+        return self._mesh
+        
+    @property
+    def zero_points(self):
+        return self._zero_points_mesh
+        
+    @property    
+    def vectors(self):
+        return self._vectors
+
+    def update_vertices_from_mesh(self):
+        raise RuntimeError(
+            "ParametricTriangleBoundary: update_vertices_from_mesh is disabled for "    
+            "parametric boundaries."
+        )
+    def update_from_mesh(self):
+        raise RuntimeError(
+            f"ParametricTriangleBoundary: update_from_mesh is disabled for parametric "
+            "boundaries."
+        )
+        
+    @property
+    def use_vertex_update_map(self):
+        return self._use_vertex_update_map
+        
+    @use_vertex_update_map.setter
+    def use_vertex_update_map(self, val):
+        self._use_vertex_update_map = val
+        if val:
+            self.vertex_update_map = self._vertex_update_map
+            
+    @property
+    def accumulator(self):
+        return self._accumulator
+        
+    @property
+    def rotationally_symmetric(self):
+        return self._rotationally_symmetric
+        
+    def update_mesh_from_vertices(self):
+        """
+        Updates the mesh from self._vertices.
+        
+        Have to re-implement this to handle the non-updating end caps.
+        """
+        if self._vertices is not None:
+            if self._start_cap:
+                if self._end_cap:
+                    # start cap, end cap
+                    self._mesh.points[1:-1] = self._vertices.numpy()
+                else:
+                    # start cap, no end cap
+                    self._mesh.points[1:] = self._vertices.numpy()
+            else:
+                if self._end_cap:
+                    # no start cap, end cap
+                    self._mesh.points[:-1] = self._vertices.numpy()
+                else:
+                    # no start cap, no end cap
+                    self._mesh.points = self._vertices.numpy()
+                    
+    def _update_vertices_from_mesh(self):
+        """
+        Updates the vertices and faces from self._mesh.
+        
+        Have to re-implement this because of the damn end caps, which is starting to
+        feel like it was a mistake...
+        """
+        if self._mesh is not None:
+            self._vertices = tf.cast(self._mesh.points, dtype=tf.float64)
+            self._prune_vertices()
+            try:
+                # could fail if the mesh does not consist only of triangles
+                self._faces = tf.reshape(self._mesh.faces, (-1, 4))
+            except tf.errors.InvalidArgumentError as e:
+                raise ValueError(
+                    "ManualTriangleBoundary: mesh must consist entirely of triangles."
+                ) from e
+                
+    def _prune_vertices(self):
+        if self._start_cap:
+            if self._end_cap:
+                # start cap, end cap
+                self._vertices = self._vertices[1:-1]
+            else:
+                # start cap, no end cap
+                self._vertices = self._vertices[1:]
+        else:
+            if self._end_cap:
+                # no start cap, end cap
+                self._vertices = self._vertices[:-1]
+            else:
+                # no start cap, no end cap
+                self._vertices = self._vertices
+        
+
         
         
         

@@ -21,7 +21,8 @@ def density_function(x, y):
     #return np.exp(-(x*x + y*y))
     #return np.abs(np.sin(y)*np.sin(x))
     #return np.maximum(1 - (x*x + y*y), 1e-6)
-    return (hermite(hermite_ij[0])(x) * hermite(hermite_ij[1])(y))**2 * np.exp(-(x*x + y*y)) + 1e-10
+    #return (hermite(hermite_ij[0])(x) * hermite(hermite_ij[1])(y))**2 * np.exp(-(x*x + y*y)) + 1e-10
+    return x + np.abs(x) + 1e-10
 
 # define the coordinate grid that will be used for evaluation and plotting
 x, y = np.meshgrid(

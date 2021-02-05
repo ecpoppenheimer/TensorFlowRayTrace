@@ -19,6 +19,7 @@ import math
 
 import numpy as np
 import pyvista as pv
+from scipy.interpolate import griddata
 
 PI = math.pi
 
@@ -398,6 +399,40 @@ def mesh_smoothing_tool(mesh, weights):
 
 # =========================================================================================
 
+def get_flat_initial(mesh, axis=0):
+    """
+    Separates one dimension out of a mesh, replacing the values in that dimension with zero
+    and returns the removed values as a separate 1D array.
+    
+    This function is useful for setting up the initial condition for a parametric optic.  It 
+    is convenient to have the zero point mesh for a parametric optic be planar in order to
+    set up some kinds of constraints.  So if you want to parametrize an optic relative to a 
+    plane but also start with a non-planar initial condition for it, this function will
+    flatten the mesh and return an array that can be used to initialize the parameters.
+    
+    Parameters
+    ----------
+    mesh : pyvista mesh
+        The mesh to flatten.  This function will alter the mesh you give it, so make a copy
+        before if you need it.
+    axis : int, optional
+        The index of the axis you want to flatten out.  Must be 0, 1, or 2, for the x, y, or z
+        dimension.  Defaults to 0 for the x dimension.
+        
+    Returns
+    -------
+    initials : 1D np.array
+        The initial values use to re-inflate the given mesh to it's original shape.
+        
+    """
+    if axis not in {0, 1, 2}:
+        raise ValueError("get_flat_initial: axis must be in {0, 1, 2}.")
+    initial_parameter = mesh.points[:,axis].copy()
+    mesh.points[:,axis] = 0.0
+    return initial_parameter
+
+# =========================================================================================
+
 def movable_to_updatable(mesh, face_movable_vertices):
     """
     Converts a list of sets that dictates which vertices each face is allowed to move into
@@ -422,7 +457,7 @@ def movable_to_updatable(mesh, face_movable_vertices):
             orphaned_count += 1
             face_updates[face] = [True] * 3
     if orphaned_count > 0:
-        print("Warning, found orphaned faces in mesh.")
+        print("Mesh parametrization tools: warning, found orphaned faces in mesh.")
     
     return np.array(face_updates, dtype=np.bool)
         
@@ -554,6 +589,7 @@ def circular_mesh(
     Returns
     -------
     A pv.PolyData in the x,y plane, centered at zero.
+    
     """
     if join is None:
         join = bool(theta_start==0) and bool(theta_end==2*PI)
@@ -592,7 +628,7 @@ def circular_mesh(
         (radius_steps[0] * math.cos(angle), radius_steps[0] * math.sin(angle), 0)
         for angle in starting_angles
     ]
-    edges = []
+    faces = []
     cumulative_point_count = len(points)
     new_point_count = cumulative_point_count
     last_indices = itertools.cycle(range(cumulative_point_count))
@@ -625,10 +661,10 @@ def circular_mesh(
             for i in range(triangles_per_trapezoid):
                 if choose_outer:
                     third = next(new_indices)
-                    edges.append((third, second, first))
+                    faces.append((third, second, first))
                 else:
                     third = next(last_indices)
-                    edges.append((first, second, third))
+                    faces.append((first, second, third))
                 first = second
                 save_second = second
                 second = third
@@ -644,12 +680,97 @@ def circular_mesh(
         cumulative_point_count += len(new_points)
         triangles_per_trapezoid += 2
         
-    # process the shape of the edges
-    edges = np.array(edges, dtype=np.int64)
-    edges = np.pad(edges, ((0, 0), (1, 0)), mode='constant', constant_values=3)
-    edges = np.reshape(edges, (-1))
+    # process the shape of the faces
+    faces = np.array(faces, dtype=np.int64)
+    faces = np.pad(faces, ((0, 0), (1, 0)), mode='constant', constant_values=3)
+    faces = np.reshape(faces, (-1))
         
-    return pv.PolyData(np.array(points), edges)
+    return pv.PolyData(np.array(points), faces)
+    
+def hexagonal_mesh(radius=1.0, step_count=10):
+    """
+    Generate a totally uniform hexagonal mesh out of equilateral triangles.
+    
+    Parameters
+    ----------
+    radius : float, optional
+        The radius of the hexagon (distance between the center and one of the corners).
+        Defaults to 1.0
+    step_count : int, optional
+        Number of layers of triangles to use.
+        Defaults to 10
+        
+    Returns
+    -------
+    hexagonal_mesh : pyvista mesh
+        The new mesh.
+        
+    """
+    radius_steps = np.linspace(0, radius, step_count+1)
+    points = [(0.0, 0.0, 0.0)]
+    faces = []
+    cumulative_point_count = 1
+    new_point_count = 1
+    last_indices = itertools.cycle([0])
+    
+    for radius in radius_steps[1:]:
+        # make all of the new points for the entire layer of triangles.
+        
+        # create the points along each edge of the hex, but skip the last
+        trapezoid_edge_points = [
+            np.linspace(
+                (radius*np.cos(PI/3*trapezoid), radius*np.sin(PI/3*trapezoid), 0.0),
+                (radius*np.cos(PI/3*(trapezoid+1)), radius*np.sin(PI/3*(trapezoid+1)), 0.0),
+                new_point_count + 1
+            )[:-1,:]
+            for trapezoid in range(6)
+        ]
+        
+        # concatenate the trapezoid edges into a single set of new points.
+        new_points = np.concatenate(trapezoid_edge_points, axis=0)
+        points = np.concatenate([points, new_points], axis=0)
+        
+        # make an iterator for these new points   
+        new_indices = itertools.cycle(range(
+            cumulative_point_count,
+            cumulative_point_count + len(new_points)
+        ))
+        
+        # weave the faces
+        first = next(new_indices)
+        second = next(last_indices)
+        save_second = second
+        for trapezoid in range(6):
+            choose_outer = True
+            for i in range(2 * new_point_count - 1):
+                if choose_outer:
+                    third = next(new_indices)
+                    faces.append((third, second, first))
+                else:
+                    third = next(last_indices)
+                    faces.append((first, second, third))
+                first = second
+                save_second = second
+                second = third
+                choose_outer = not choose_outer
+            first = third
+            second = save_second
+            
+        # update things for the next layer pass
+        last_indices = itertools.cycle(range(
+            cumulative_point_count,
+            cumulative_point_count + 6 * new_point_count
+        ))
+        cumulative_point_count += 6 * new_point_count
+        new_point_count += 1
+            
+    # process the shape of the faces
+    faces = np.array(faces, dtype=np.int64)
+    faces = np.pad(faces, ((0, 0), (1, 0)), mode='constant', constant_values=3)
+    faces = np.reshape(faces, (-1))
+        
+    return pv.PolyData(np.array(points), faces)
+        
             
 # -------------------------------------------------------------------------------------------
 
@@ -710,6 +831,7 @@ def cylindrical_mesh(
     Returns
     -------
     The cylindrical mesh, a pv.PolyData.
+    
     """
     # reshape everything to (1, 3)
     start = np.reshape(start, (1, 3))
@@ -805,6 +927,90 @@ def cylindrical_mesh(
         return np.reshape(np.pad(faces, ((0, 0), (1, 0)), constant_values=3), (-1,))
     
     return pv.PolyData(np.array(points), pack_faces(faces))
+    
+# ==========================================================================================
+
+def planar_interpolated_remesh(
+    input_mesh,
+    base_mesh,
+    range_axis=2,
+    interp_fill_value=0.0,
+    flatten=True
+):
+    """
+    Remeshes input_mesh like base_mesh.
+    
+    This function is designed for re-meshing an initial condition mesh whose vertices define
+    the desired shape but are not uniform enough for good optimization.
+    
+    input_mesh should have extent into all three dimensions, but should be single-valued with
+    respect to the interpolation_axis.  A 2D interpolating function will be computed for the 
+    height of input_mesh's vertices (along the interpolation axis) and this interpolation will
+    be used to set the position of the vertices in base_mesh (by moving them only along the
+    interpolation_axis).
+    
+    base_mesh should be a 3D mesh but confined to the plane not containing the 
+    interpolation_axis.  Any data in the interpolation_axis will be ignored.  Typically this
+    mesh will be generated from one of the mesh generating functions defined in this module, 
+    since they are designed to produce highly regular meshes, though this isn't required.   
+    base_mesh will be copied before being used by this function, and so will not be changed.
+    
+    Parameters
+    ----------
+    input_mesh : pyvista mesh
+        The mesh whose shape to preserve while being re-meshed.
+    base_mesh : pyvista mesh
+        The mesh to re-mesh like.  Should be a planar mesh with highly uniform triangulation.
+    range_axis : int, optional
+        Must be in {0, 1, 2} the axis to interpolate over.  Defaults to 2, the z-axis.
+    interp_fill_value : float, optional
+        Value given to the interpolation function to fill with outside of the domain given
+        during interpolation.  Defaults to zero.
+    flatten : bool, optional
+        Defaults to True, and determines the return type
+        
+    Returns
+    -------
+    If flatten is True:
+        zero_points : pyvista mesh
+            The flattened re-meshed version of input_mesh
+        initial_parameters : np.array
+            The coordinates along interpolation_axis that will give zero_points the proper
+            shape.
+    If flatten is False:
+        remeshed : pyvista mesh
+            The re-meshed version of input_mesh
+    """
+    
+    if range_axis is 0:
+        domain_axes = (1, 2)
+    elif range_axis is 1:
+        domain_axes = (0, 2)
+    elif range_axis is 2:
+        domain_axes = (0, 1)
+    else:
+        raise ValueError("planar_interpolated_remesh: axis must be in {0, 1, 2}.")
+    
+    
+    input_range = input_mesh.points[:,range_axis]
+    input_domain = input_mesh.points[:,domain_axes]
+    
+    output_domain = base_mesh.points[:,domain_axes]
+    output_range = griddata(
+        input_domain,
+        input_range,
+        output_domain,
+        fill_value=interp_fill_value
+    )
+    
+    if flatten:
+        output_mesh = base_mesh.copy()
+        output_mesh.points[:,range_axis] = 0.0
+        return output_mesh, output_range
+    else:
+        output_mesh = base_mesh.copy()
+        output_mesh.points[:,range_axis] = output_range
+        return output_mesh
 
 
 

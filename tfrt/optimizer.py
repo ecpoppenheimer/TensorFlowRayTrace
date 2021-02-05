@@ -68,6 +68,12 @@ class SGD_Optimizer:
     grad_clip : float or None
         If not None, all gradients are clipped to lie within +/- this value.  Prevents
         extreme changes being made to the parameters.  Defaults to 10x the learning rate
+    clip_mode : str, optional
+        Defaults to 'common', in which case the same clip value is used for all grads.
+        May also be 'individual', in which case the clip value if proportional to the 
+        individual learning rates.
+    clip_scale : float, optional
+        Defaults to 10.  The default size of the clip value, relative to the learning rate.
         
     Public read/write attributes
     ----------------------------
@@ -90,7 +96,9 @@ class SGD_Optimizer:
         momentum=0.0,
         learning_rate=1.0,
         individual_lr=None,
-        grad_clip="default"
+        grad_clip="default",
+        clip_mode="common",
+        clip_scale=10.0
     ):
         self._opt = tf.optimizers.SGD(nesterov=True)
         
@@ -104,10 +112,12 @@ class SGD_Optimizer:
         self.momentum = momentum
         self.learning_rate = learning_rate
         self.individual_lr = individual_lr
+        self.clip_scale = clip_scale
         if grad_clip == "default":
-            self.grad_clip = 10 * learning_rate
+            self.grad_clip = self.clip_scale * learning_rate
         else:
             self.grad_clip = grad_clip
+        self.clip_mode = clip_mode
         self.suppress_warnings = False
         self.iterations = 0
     
@@ -231,7 +241,11 @@ class SGD_Optimizer:
                 
             # apply the learning rate and clip.
             grad *= lr_scale * self.individual_lr[i] * self.learning_rate
-            grad = tf.clip_by_value(grad, -self.grad_clip, self.grad_clip)
+            if self.clip_mode == "common":
+                grad = tf.clip_by_value(grad, -self.grad_clip, self.grad_clip)
+            else:
+                clp = self.individual_lr[i] * self.clip_scale * self.learning_rate * lr_scale
+                grad = tf.clip_by_value(grad, -clp, clp)
             
             # apply the accumulator
             if accumulators[i] is not None:
@@ -239,7 +253,7 @@ class SGD_Optimizer:
                 grad = tf.reshape(grad, (-1, 1))
                 grad = tf.matmul(accumulators[i], grad)
                 grad = tf.reshape(grad, prev_shape)
-                
+               
             processed_grads.append(grad)
         return processed_grads, tf.reduce_mean(error)
     
@@ -305,7 +319,13 @@ class SGD_Optimizer:
             print(f"step {self.iterations} error: {error.numpy()}")
         return error.numpy()
             
-    def training_routine(self, routine, post_step=None, report_frequency=1, show_time=True):
+    def training_routine(
+        self, 
+        routine, 
+        post_step=None,
+        report_frequency=1, 
+        show_time=True
+    ):
         """
         Run many optimization steps defined in a routine.
         
@@ -319,7 +339,8 @@ class SGD_Optimizer:
             "accumulators": None,
             "smoothers": None,
             "erf_args": [],
-            "erf_kwargs": {}
+            "erf_kwargs": {},
+            "individual_lr": None
         }
         Each optimization phase is defined by a similar dictionary.  Each time a new phase 
         begins, the phase dictionary will be updated with the values specified in the next 
@@ -357,7 +378,8 @@ class SGD_Optimizer:
             "accumulators": None,
             "smoothers": None,
             "erf_args": [],
-            "erf_kwargs": {}
+            "erf_kwargs": {},
+            "individual_lr": None
         }
         self.iterations = 0
         phase_count = len(routine)
@@ -385,6 +407,7 @@ class SGD_Optimizer:
                 phase["learning_rate"],
                 phase["steps"]
             )
+            self.individual_lr = phase["individual_lr"]
             for i in range(phase["steps"]):
                 error = self.single_step(
                     phase["accumulators"],

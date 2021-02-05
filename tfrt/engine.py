@@ -912,7 +912,7 @@ class OpticalSystem3D(OpticalSystemBase):
             self._amalgamated_stop = amalgamate(self._stop)
         if bool(self._target):
             self._amalgamated_target = amalgamate(self._target)
-            
+        
         self._merge_boundaries()
             
         self.clear_read_only()
@@ -1012,7 +1012,7 @@ class OpticalSystem3D(OpticalSystemBase):
             )[0]
         else:
             self._target_count = 0
-            
+        
         self._merged = amalgamate(
             [optical, stop, target], 
             TRIANGLE_GEO_SIG | {"catagory"}
@@ -1075,7 +1075,7 @@ class OpticalSystem3D(OpticalSystemBase):
                 self._merged["norm"],
                 result["gather_trig"]
             )
-                
+               
         return result
 
     """@tf.function(

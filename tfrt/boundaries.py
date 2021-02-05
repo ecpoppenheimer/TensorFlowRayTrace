@@ -61,6 +61,13 @@ class Constraint(ABC):
     4) If parent is an integer, then the parent passed to make() must be a list of 
         surfaces, and target must be an integer that specifies the index of the constrained 
         surface within this list of surfaces.  Parent must be >= 0.
+    
+    A parametric multi surface will automatically handle the constraints.  If you need to
+    add a constraint manually, here is how.
+        
+    my_parametric_surface.update_handles.append(
+        my_constraint.make(my_parametric_surface, my_target, my_parent)
+    )
     """
     def __init__(self, parent="prev"):
         if type(parent) is int:
@@ -205,6 +212,26 @@ class ThicknessConstraint(Constraint):
             diff = tf.broadcast_to(diff, target.shape)
             target.assign_add(diff)
             
+        return handler
+        
+# --------------------------------------------------------------------------------------
+
+class ClipConstraint:
+    """
+    Clips the parameters of a surface to lie within certain values.  Unlike the other
+    constraints, this one only accepts absolute values.
+    """
+    def __init__(self, lower, upper):
+        self.lower = lower
+        self.upper = upper
+        
+    def make(self, target, _):
+        def handler(target=target):
+            target.parameters.assign(tf.clip_by_value(
+                target.parameters,
+                self.lower,
+                self.upper
+            ))
         return handler
 
 # =========================================================================================
@@ -857,7 +884,7 @@ class TriangleBoundaryBase(BoundaryBase):
                 self._faces = tf.reshape(self._mesh.faces, (-1, 4))
             except tf.errors.InvalidArgumentError as e:
                 raise ValueError(
-                    "ManualTriangleBoundary: mesh must consist entirely of triangles."
+                    "TriangleBoundary: mesh must consist entirely of triangles."
                 ) from e
         
     def update_fields_from_vertices(self):
@@ -1375,8 +1402,8 @@ class ParametricCylindricalGuide(TriangleBoundaryBase):
         **kwargs
      ):
         # build the mesh and for a single time extract the vertices and faces from this 
-        # mesh.  This operation will be banned from here on, and the mesh will be a slave of 
-        # the vertices.
+        # mesh.  This operation will be banned from here on, and the mesh will be a slave
+        # of the vertices.
         self._mesh = mt.cylindrical_mesh(
             start,
             end,

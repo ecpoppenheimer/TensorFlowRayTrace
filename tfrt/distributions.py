@@ -1847,6 +1847,167 @@ class RandomLambertianSphere(SphereBase):
             axis=1
         )
 
+# --------------------------------------------------------------------------------------
+        
+class SquareRankLambertianSphere(RecursivelyUpdatable):
+    """
+    Class that generates points sampled from a lambertian distribution, but which generates
+    a square rank.  Intended for modeling the angular dependence of an LED when a square (or 
+    square-derived) goal is desired for optimization.  RandomLambertianSphere is (probably)
+    a somewhat more performant option for modeling an LED when a round goal is desired (it
+    gives it's ranks in polar coordinates).
+    
+    Random, though it doesn't explicitly state this in the name, because I have realised that
+    the uniform distributions are probably nearly useless.  Also does not support adjusting
+    the azimuthal cutoffs, because why would you need that?
+    
+    Parameters
+    ----------
+    sample_count : int
+        Number of points to generate.  Must be > 0.
+    angular_cutoff : float, optional
+        Maximum phi (angle relative to center) of generated points.  Must be between 0 and
+        PI/2.  Defaults to PI/2
+    sampling_resolution : int, optional
+        Number of samples to use when generating the CDF at startup.  Defaults to 256.
+        
+    Public attributes
+    -----------------
+    sample_count
+    angular_cutoff 
+    sampling_resolution   
+        
+    Public members
+    --------------
+    update()
+        Recalculates the values stored by the distribution.  This allows the points to 
+        change if you change one of the parameters.  This operation can be called 
+        recursively by higher tier consumers of the base point distribution 
+        (like a source), but updating a distribution will NOT recursively update any 
+        lower tier object the distribution may be made from, since these are expected 
+        to be at the bottom of the stack.
+        
+        Random ops will have their random distribution re-sampled every time they
+        are updated.
+    """
+    def __init__(
+        self,
+        sample_count,
+        angular_cutoff=PI/2.0,
+        sampling_resolution=256,
+        **kwargs
+    ):
+        self.sampling_resolution = sampling_resolution
+        self.angular_cutoff = angular_cutoff
+        self.sample_count = sample_count
+        RecursivelyUpdatable.__init__(self, **kwargs)
+        
+    @property
+    def sample_count(self):
+        return self._sample_count
+        
+    @sample_count.setter
+    def sample_count(self, val):
+        if val < 0:
+            raise ValueError(
+                "SquareRankLambertianSphere: Sample count must be > 0."
+            )
+        try:
+            self._sample_count = int(val)
+        except(TypeError) as e:
+            raise TypeError("SquareRankLambertianSphere: Sample count must be an int.") from e
+        
+    @property
+    def angular_cutoff(self):
+        return self._angular_cutoff
+        
+    @angular_cutoff.setter
+    def angular_cutoff(self, val):
+        if val > PI/2.0 or val < 0:
+            raise ValueError(
+                "SquareRankLambertianSphere: angular cutoff must be between zero and PI/2."
+            )
+        else:
+            self._angular_cutoff = val
+            self._get_circle_dist()
+            
+    @property
+    def sampling_resolution(self):
+        return self._sampling_resolution
+        
+    @sampling_resolution.setter
+    def sampling_resolution(self, val):
+        if val < 0:
+            raise ValueError(
+                "SquareRankLambertianSphere: Sample count must be > 0."
+            )
+        try:
+            self._sampling_resolution = int(val)
+        except(TypeError) as e:
+            raise TypeError("SquareRankLambertianSphere: Sample count must be an int.") from e
+            
+    def _get_circle_dist(self):
+        def density(x, y):
+            return np.less(
+                np.sqrt(x*x + y*y),
+                np.sin(self._angular_cutoff),
+                dtype=np.float64
+            ) + 1e-10
+            
+        self._circle_maker = ArbitraryDistribution(
+            density,
+            ((-1.0, 1.0, self._sampling_resolution), (-1.0, 1.0, self._sampling_resolution))
+        )
+        
+    @property
+    def points(self):
+        return self._points
+        
+    @property
+    def ranks(self):
+        return self._ranks
+        
+    def _update(self):
+        # generate ranks as a uniform square
+        self._ranks = tf.random.uniform((self._sample_count, 2), -1.0, 1.0, dtype=tf.float64)
+        
+        # generate points on a circle from the square ranks using an Arbitrary_Distribution.
+        # the radius of the circle is determined from angular_cutoff, and the 
+        # Arbitrary_Distribution is generated from angular_cutoff's setter.
+        self._circle_x, self._circle_y = self._circle_maker(
+            self._ranks[:,0],
+            self._ranks[:,1]
+        )
+        
+        # now project onto a sphere to get spherical coordinates.
+        # the sphere is centered at z=1.
+        # I am sure there are lots of simplifications that could be done here, but
+        # I don't have access to paper so fuck it.
+        # this spherical projection automatically causes the angular distribution to be
+        # lambertian, no CDF needed.
+        theta = tf.atan2(self._circle_y, self._circle_x)
+        xx = self._circle_x*self._circle_x
+        yy = self._circle_y*self._circle_y
+        circle_rad = tf.sqrt(xx + yy)
+        z = tf.sqrt(1 - xx - yy)
+        phi = tf.atan2(circle_rad, z)
+        self._phi = phi
+        
+        # now move back into cartesian coords, relative to the center of the sphere.
+        # have to remember that the convention for sources (how they rotate)
+        # has x and z swapped :(.
+        self._points = tf.stack(
+            [
+                tf.cos(phi),
+                tf.sin(phi) * tf.cos(theta),
+                tf.sin(phi) * tf.sin(theta),
+            ],
+            axis=1
+        )
+        
+    def _generate_update_handles(self):
+        return []
+
 # =========================================================================================
 
 class BasePointTransformation():
@@ -1981,6 +2142,12 @@ class ArbitraryDistribution:
     x, y : 1D float array
         The inputs, but transformed so that they now sample the given distribution.  Shape 
         will be the same as the inputs.
+        
+    Public Attributes
+    -----------------
+    density_function : 2D float array
+        The density function fed to the distribution, after it has been
+        evaluated on the evaluation limits (if appropriate)
     """
     def __init__(self, density_function, evaluation_limits):
         """
@@ -2045,6 +2212,8 @@ class ArbitraryDistribution:
                 "PointCloudSampler: density function must be non-negative on the whole "
                 "evaluation grid."
             )
+            
+        self.density_function = density
         
         # pad the density function, since we want our cumsums to start from zero.
         density = np.pad(density, ((1, 0), (1, 0)), mode="constant", constant_values=0)
@@ -2113,6 +2282,99 @@ class ArbitraryDistribution:
             y_out[y_range[mask]] = self._y_quantiles[i](y[mask])
             
         return x_out, y_out
+        
+# -----------------------------------------------------------------------------------------
+
+def flatten_distribution(x, y, evaluation_limits):
+    """
+    Flatten a point cloud sampled from any arbitrary distribution into a uniform one.
+    
+    This function computes the cumulative distribution function of an arbitrary distribution
+    and then applies the cdf to the input distribution to flatten it into a uniform one.
+    This is the inverse operation compated to what ArbitraryDistribution does.  It is
+    not wrapped in a class because I forsee always wanting to re-calculate everything
+    every time I use this, so I see no value in preserving previously calculated results
+    in a class structure.
+    
+    Parameters
+    ----------
+    x, y : 1D float array
+        Arbitrairly distributed x and y points.  Their shape must be exactly the same.
+    evaluation_limits : tuple
+        This is a nested tuple that defines the domain of the distribution and its sampling 
+        resolution.  It must be ((x_start, x_end, x_res), (y_start, y_end, y_res)).
+        
+    Returns
+    -------
+    x, y : 1D float array
+        The inputs, but transformed so that they now sample a uniform distribution.  Shape 
+        will be the same as the inputs.
+    """
+    x_min, x_max, x_res = evaluation_limits[0]
+    y_min, y_max, y_res = evaluation_limits[1]
+    
+    # Compute the input density via a histogram.  np.histogram2d gives the transpose of
+    # what is expected, so we take the transpose to fix this.  And it also does not bin
+    # elements outside the range, but we really care about ensuring that we preserve the
+    # shape if the point cloud, so clip everything first to avoid outliers.
+    x = np.clip(x, x_min, x_max)
+    y = np.clip(y, y_min, y_max)
+    density, _, _ = np.histogram2d(
+        x,
+        y,
+        bins=(x_res, y_res),
+        range=((x_min, x_max), (y_min, y_max))
+    )
+    density = np.transpose(density) 
+    
+    # pad the density function, since we want our cumsums to start from zero.
+    density = np.pad(density, ((1, 0), (1, 0)), mode="constant", constant_values=0)
+    column_sums = np.cumsum(density, axis=0)
+    row_sum = np.cumsum(column_sums[-1])
+    column_sums_array = column_sums[:,1:] # now we can remove the pad column
+    
+    """# scale the sums to match the ranges of the evaluation grid (since these will become
+    # the dependent variable once we invert).
+    def rescale(n, n_min, n_max):
+        amax = np.amax(n)
+        return n * (n_max - n_min) / amax + n_min
+    
+    row_sum = self._rescale(row_sum, self._x_min, self._x_max)
+    column_sums = [
+        self._rescale(column_sums_array[:,i], self._y_min, self._y_max)
+        for i in range(self._x_count)
+    ]"""
+    
+    # rescale the sums to go between 0 and 1
+    rescale = lambda x: x / np.amax(x)
+    row_sum = rescale(row_sum)
+    column_sums = [rescale(column_sums_array[:,i]) for i in range(x_res)]
+    
+    # Interpolate to generate the CDF We need new x and y coordinate lists with one extra 
+    # element, since the cumsum adds a zero at the start.
+    interpolate_x = np.linspace(x_min, x_max, x_res + 1)
+    interpolate_y = np.linspace(y_min, y_max, y_res + 1)
+    x_cdf = interp1d(interpolate_x, row_sum)
+    y_cdfs = [
+        interp1d(interpolate_y, column_sum)
+        for column_sum in column_sums
+    ]
+        
+    # now evaluate the cfd on the input distribution, to flatten it into a uniform one
+    x_out = x_cdf(x)
+    
+    # select which y quantile curve to use
+    y_curve = (x_out - x_min) * x_res / (x_max - x_min)
+    y_curve = np.floor(y_curve).astype("int")
+    
+    # this does the same thing, but is faster!   
+    y_range = np.arange(y.shape[0])
+    y_out = np.zeros_like(y)
+    for i in range(y_res):
+        mask = y_curve == i
+        y_out[y_range[mask]] = y_cdfs[i](y[mask])
+        
+    return x_out, y_out
 
 # -----------------------------------------------------------------------------------------
 

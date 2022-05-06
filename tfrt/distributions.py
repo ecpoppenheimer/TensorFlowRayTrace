@@ -11,7 +11,7 @@ import math
 import itertools
 from abc import ABC, abstractmethod
 
-import tensorflow_graphics.geometry.transformation.quaternion as quaternion
+import tfquaternion as tfq
 import tensorflow as tf
 import numpy as np
 import imageio
@@ -1730,7 +1730,7 @@ class StaticUniformSphere(SphereBase):
     def _update(self):
         indices = tf.range(self._sample_count, dtype=tf.float64) + .5
         phi = tf.linspace(
-            1, 
+            tf.constant(1.0, dtype=tf.float64), 
             tf.cos(self._angular_size),
             self._sample_count
         )
@@ -2074,7 +2074,7 @@ class BasePointTransformation():
             base_points *= self._scale
             
         if self._rotation is not None:
-            base_points = quaternion.rotate(base_points, self._rotation)
+            base_points = tfq.rotate_vector_by_quaternion(self._rotation, base_points)
             
         if self._translation is not None:
             base_points += self._translation
@@ -2090,15 +2090,9 @@ class BasePointTransformation():
         if val is not None:
             # the value set to self._rotation should be a quaternion.
             val = tf.cast(val, tf.float64)
-            if val.shape == ():
-                val = quaternion.from_euler((val, 0.0, 0.0))
-            elif val.shape == (3,):
-                val = quaternion.from_euler(val)
-            elif val.shape == (4,):
-                pass
-            else:
+            if val.shape != (4,):
                 raise ValueError(
-                    "BasePointTransformation: rotation must be scalar, 3D, or a quaternion."
+                    "BasePointTransformation: rotation must be a quaternion."
                 )
         self._rotation = val 
                    

@@ -56,12 +56,13 @@ import itertools
 import pickle
 from abc import ABC, abstractmethod
 
-from tfrt.update import RecursivelyUpdatable
-
 import tensorflow as tf
 import numpy as np
-import tensorflow_graphics.geometry.transformation.quaternion as quaternion
-import tensorflow_graphics.geometry.transformation.rotation_matrix_2d as rotate_2d
+import tfquaternion as tfq
+
+from tfrt.update import RecursivelyUpdatable
+import tfrt.geometry as geometry
+
 PI = math.pi
 COUNTER = itertools.count(0)
 
@@ -424,17 +425,9 @@ class RotationBase:
                 if val.shape != (3,):
                     raise ValueError("Source: central_angle must be size (3,).")
                 else:
-                    self._central_angle = quaternion.between_two_vectors_3d(
+                    self._central_angle = geometry.quaternion_between_3d(
                         self._x_axis,
                         val
-                    )
-                    # there seems to be a bug in between_two_vectors_3d when doing
-                    # a 180 rotation.
-                    # I am writing a hack solution here
-                    self._central_angle = tf.where(
-                        tf.less(tf.reduce_max(tf.abs(self._central_angle)), .01),
-                        tf.constant((0, 0, 1, 0), dtype=tf.float64),
-                        self._central_angle
                     )
             else:
                 if val.shape != (4,):
@@ -446,7 +439,7 @@ class RotationBase:
         if self._dimension == 2:
             return angles + self._central_angle
         else:
-            return quaternion.rotate(angles, self._central_angle)
+            return tfq.rotate_vector_by_quaternion(self._central_angle, angles)
         
     def _rotate_points(self, points):
         if self._dimension == 2:
@@ -461,7 +454,7 @@ class RotationBase:
                     [tf.zeros((p_shape[0], 1), dtype=tf.float64), points], 
                     1
                 )
-            return quaternion.rotate(points, self._central_angle)
+            return tfq.rotate_vector_by_quaternion(self._central_angle, points)
     
     _x_axis = tf.constant((1, 0, 0), dtype=tf.float64)
 

@@ -982,11 +982,11 @@ def planar_interpolated_remesh(
             The re-meshed version of input_mesh
     """
     
-    if range_axis is 0:
+    if range_axis == 0:
         domain_axes = (1, 2)
-    elif range_axis is 1:
+    elif range_axis == 1:
         domain_axes = (0, 2)
-    elif range_axis is 2:
+    elif range_axis == 2:
         domain_axes = (0, 1)
     else:
         raise ValueError("planar_interpolated_remesh: axis must be in {0, 1, 2}.")

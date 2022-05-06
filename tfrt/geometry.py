@@ -6,6 +6,7 @@ used by a user as well.
 from math import pi as PI
 
 import tensorflow as tf
+import tfquaternion as tfq
 
 # =====================================================================================
 
@@ -799,3 +800,40 @@ def angle_in_interval(angle, start, end):
         reduced_end
     )
     return tf.less_equal(reduced_angle, reduced_end)
+
+# -------------------------------------------------------------------------------------------
+
+def quaternion_between_3d(u, v, epsilion=1e-6):
+    """
+    This function computes a quaternion (using tfquaternion) that will rotate the vector u
+    onto the vector v.  This by itself isn't very useful, except that it will also then 
+    rotate vectors near u onto vectors near v, in a sensible fashion.  This is used for
+    orienting sources and distributions.
+
+    Pseudocode was copied from https://stackoverflow.com/questions/1171849/finding-
+    quaternion-representing-the-rotation-from-one-vector-to-another#:~:text=One%20
+    solution%20is%20to    %20compute,all%20the%20way%20to%20v!
+    """
+    u = tf.math.l2_normalize(u)
+    v = tf.math.l2_normalize(v)
+
+    # The dot / cross product determination produces twice the desired rotation.
+    # Half the rotation can be accomplished by averaging the rotation produced here with a zero
+    # rotation, which is accomplished by simply adding 1 to the dot product.
+    dot = tf.expand_dims(tf.tensordot(u, v, 1), 0) + 1
+    cross = tf.linalg.cross(u, v)
+
+    # But if they rotation is a pure 180 flip then this will cause the dot product to become -1
+    # which will create a zero quaternion, which is not what we want.  So have to manually construct
+    # the quaternion in this case
+    if dot < epsilion:
+	# need any vector orthogonal to the input try crossing with the x-axis and if that does not
+        # work than crossing with the y axis is guarenteed to...
+        ortho = tf.linalg.cross(u, (1, 0, 0))
+        if tf.reduce_sum(ortho) < epsilion:
+            ortho = tf.linalg.cross(u, (0, 1, 0))
+        q = tfq.Quaternion(tf.math.l2_normalize(tf.concat([dot, ortho], -1)), dtype=tf.float64)
+        print(f"did a flip! {q}")
+        return q
+    else:
+        return tfq.Quaternion(tf.math.l2_normalize(tf.concat([dot, cross], -1)), dtype=tf.float64)

@@ -425,9 +425,10 @@ class RotationBase:
                 if val.shape != (3,):
                     raise ValueError("Source: central_angle must be size (3,).")
                 else:
-                    self._central_angle = geometry.quaternion_between_3d(
+                    self._central_angle = tfq.get_rotation_quaternion_from_u_to_v(
                         self._x_axis,
-                        val
+                        val,
+                        dtype=tf.float64
                     )
             else:
                 if val.shape != (4,):

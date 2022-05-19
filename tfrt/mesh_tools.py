@@ -1013,6 +1013,127 @@ def planar_interpolated_remesh(
         return output_mesh
 
 
+# ===============================================================================
+
+def clean_mesh(mesh, distance_tolerance=1e-6):
+    """
+    Perform various processes to clean up a pyvista mesh.  It:
+
+    1) triangulates the mesh.
+    2) removes duplicated vertices.
+    3) removes faces with more than one copy of a vertex
+    4) removes duplicated faces.
+
+    Parameters
+    ----------
+    mesh : pyvista PolyData
+        The mesh to clean
+    distance_tolerance : optional float
+        The minimum distance between vertices before they are considered equivalent and
+        deduplicated.
+
+    Returns
+    -------
+    mesh : pyvista mesh
+        The cleaned mesh
+    """
+
+    mesh = mesh.triangulate()
+    vertices = mesh.points
+    faces = np.array(unpack_faces(mesh.faces))
+
+    vertices, faces = clean_mesh_raw(vertices, faces, distance_tolerance)
+
+    return pv.PolyData(vertices, pack_faces(faces))
+
+
+def clean_mesh_raw(vertices, faces, distance_tolerance=1e-6):
+    """
+    Perform various processes to clean up a pyvista mesh.  Identical to clean_mesh,
+    except this version uses raw arrays for the vertices and faces, rather than
+    a pyvista mesh.  This function:
+
+    1) triangulates the mesh.
+    2) removes duplicated vertices.
+    3) removes faces with more than one copy of a vertex
+    4) removes duplicated faces.
+
+    Parameters
+    ----------
+    vertices : np array
+    faces : np array
+    distance_tolerance : optional float
+        The minimum distance between vertices before they are considered equivalent and
+        deduplicated.
+
+    Returns
+    -------
+    vertices, faces
+    """
+
+    # Remove duplicated vertices.
+    # Calculate the distance between every pair of vertices to find overlaps
+    distance = np.sum((vertices[None, :, :] - vertices[:, None, :]) ** 2, axis=-1)
+
+    # dup_v_pairs will be a bool matrix that encodes where duplicated vertices exist,
+    # (by checking the distance between them) but contains every redundant pair.  These
+    # redundancies need to be cut down.  We do this by first selecting only the lower triangle
+    # out of the matrix, and then figuring out which rows have any true values.  These are the
+    # vertices to delete.  For each row/v_to_del we then need to find the first column that is
+    # true to get the partner to replace with.
+    triangle = np.tril(np.ones_like(distance, dtype=np.bool), k=-1)
+    dup_v_pairs = np.logical_and(triangle, distance < distance_tolerance)
+    v_to_del = np.nonzero(np.any(dup_v_pairs, axis=1))[0]
+    v_repl = np.argmax(dup_v_pairs, axis=1)[v_to_del]
+
+    # Now we need to make all the replacements in the faces array
+    for d, r in zip(v_to_del, v_repl):
+        faces[faces == d] = r
+
+    # Now delete all duplicated vertices out of the vertex array, and decrement the vertex
+    # index of each face wherever indices are higher than the deleted vertex.  This has to be
+    # done for every duplicated vertex in order from highest to lowest.
+    vertices = np.delete(vertices, v_to_del, axis=0)
+    for d in v_to_del[::-1]:
+        faces[faces > d] -= 1
+
+    # Remove duplicated faces.
+    # This is accomplished via python set operations, which is super convenient, except
+    # that this can reorder the vertices within a face, which can flip the norm, which
+    # has to be avoided.  So I use both a set to track uniqueness and a list to avoid
+    # norm flips.
+    faces_set = set()
+    faces_list = []
+    for face in faces:
+        fs = frozenset(face)
+        # Ensure that all vertices on the face are unique.
+        if len(fs) == 3:
+            # If the face is not in the set, then add the original to the list.
+            if fs not in faces_set:
+                faces_list.append(face)
+                faces_set |= {fs}
+    faces = np.array(faces_list)
+
+    return vertices, faces
+
+
+def pack_faces(faces):
+    """
+    Convert a set of faces (tensor of shape (n, 3)) into the proper format for pymesh:
+    each face is prefixed with 3 and the total is flattened.
+    """
+    faces = np.array(faces, dtype=np.int64)
+    return np.reshape(np.pad(faces, ((0, 0), (1, 0)), constant_values=3), (-1,))
+
+
+def unpack_faces(faces):
+    """
+    Convert a set of faces from the pymesh format into a 2d array
+    (tensor of shape (n, 3)), assuming all faces are triangles.
+    """
+    return np.reshape(faces, (-1, 4))[:, 1:]
+
+
 
 
 

@@ -1,6 +1,5 @@
 numpy
 scipy
-tensorflow
 matplotlib
 pyvista
 tfquaternion

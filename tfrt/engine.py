@@ -973,7 +973,6 @@ class OpticalSystem3D(OpticalSystemBase):
         Labels and merges the boundaries (targets, stops, and optical ones) in preparation
         for tracing.
         """
-        
         optical = self._amalgamated_optical
         if bool(optical):
             optical["catagory"] = OPTICAL * tf.ones_like(

@@ -1111,6 +1111,123 @@ class ParametricTriangleBoundary(TriangleBoundaryBase):
         )
 
 # -----------------------------------------------------------------------------------------
+
+class MasterSlaveParametricTriangleBoundary(ParametricTriangleBoundary):
+    """
+    Parametric Triangle Boundary where some parameters are shared between multiple vertices.
+
+    In a situation where you want to enforce some kind of symmetry on the optic, such as
+    linear symmetry, but need to ray trace the whole thing, this class allows a smaller set
+    of parameters to control a larger set of vertices.
+
+    Use is identical to ParametricTriangleBoundary, except two additional functions must
+    be specified: filter_masters and attach_slaves.
+    """
+
+    def __init__(self, filter_masters, attach_slaves, *args, **kwargs):
+        """
+
+        Parameters
+        ----------
+        filter_masters : function or array of indices
+            Determines which indices are considered as master indices, that will
+            be given a parameter.  This can be either a callable, in which case it
+            must be a function that determines whether any given vertex is a master or
+            slave.  It's calling format must be:
+
+            Parameters
+            ----------
+            vertices : 2d array
+                The coordinates of all vertices in the boundary.
+
+            Returns
+            -------
+            A 1D boolean array whose length is equal to the size of the first dimension of
+            vertices and contains a list of which vertices (indices) are considered to be
+            masters.
+
+            Or filter masters may be a 1D iterable of indices of vertices to consider
+            masters (i.e. the output from the above defined function)
+
+        attach_slaves : function
+            This function determines which slaves should be attached to a given master.
+            It's calling format must be:
+
+            Parameters
+            ----------
+            vertices : 2d array
+                The coordinates of all vertices in the boundary.
+            master : int
+                The index into the vertices of the master of whose slaves to find.
+            available_slaves : set of ints
+                A set of indices of slave vertices that have not yet been claimed by
+                a master.
+
+            Returns
+            -------
+            A set of int indices into the vertices that indicates which slaves to
+            attach to this master.
+        """
+        super().__init__(*args, **kwargs)
+
+        # determine indices of all masters and slaves.
+        # masters is a list of which vertices are designated as masters, and the elements
+        # are indices into the original list, which has the same number of elements as
+        # there are vertices.
+        # master index is a dictionary that maps those indices down to the list of
+        # masters alone.
+        if callable(filter_masters):
+            masters = filter_masters(self._vertices)
+        else:
+            masters = filter_masters
+        master_index = {masters[i]: i for i in range(len(masters))}
+        unclaimed_slaves = set(range(self._vertices.shape[0])) - set(masters)
+
+        slave_masters = {}
+        for master in masters:
+            # master is an index into vertices, this line links slaves to the
+            # index of their master in the list of all vertices
+            slaves = attach_slaves(self._vertices, master, unclaimed_slaves)
+            unclaimed_slaves -= set(slaves)
+
+            for slave in slaves:
+                # Update each slave's reference to the index of it's master
+                # within just the list of masters.
+                slave_masters[slave] = master_index[master]
+
+        # This gather will expand the parameters to the size of the vertices
+        self._gather = tf.constant([
+            master_index[i] if i in masters else slave_masters[i] for i in range(self._vertices.shape[0])
+        ])
+
+        # Overwrite the old value of parameters
+        self.parameters = tf.Variable(
+            tf.gather(self.parameters, masters),
+            dtype=tf.float64
+        )
+
+        self._update()
+
+        # I have over-polymorphismed this class, and am having difficulties getting
+        # the correct parts to set the materials dicts called in the correct order.
+        for field, value in kwargs["material_dict"].items():
+            self[field] = tf.broadcast_to(value, self["xp"].shape)
+
+
+    def _update(self):
+        try:
+            params = tf.reshape(tf.gather(self.parameters, self._gather), (-1, 1))
+            self._vertices = self._zero_points + params * self.vectors
+            if self.auto_update_mesh:
+                self.update_mesh_from_vertices()
+            self.update_fields_from_vertices()
+        except(AttributeError):
+            # This is a lazy way of ignoring the error that is thrown when super's
+            # constructor is called and subsequently calls this function before
+            # self._gather has been defined.
+            pass
+
+# -----------------------------------------------------------------------------------------
         
 class ParametricMultiTriangleBoundary(TriangleBoundaryBase):
     """

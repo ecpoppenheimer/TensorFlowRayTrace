@@ -884,6 +884,7 @@ class BeamPointBase(BasePointDistributionBase):
         self.update_ranks()
         self._points = tf.reshape(self._endpoint, (1, 2)) * tf.reshape(self._ranks, (-1, 1))
 
+
 class StaticUniformBeam(BeamPointBase):
     """
     A set of base points uniformally spread across the width of a beam.
@@ -2488,7 +2489,7 @@ class CumulativeDensityFunction:
             y_sum /= y_sum[-1]
             x_sums /= x_sums[-1:]
 
-            # Interpolate to generate the CDF We need new x and y coordinate lists with
+            # Interpolate to generate the CDF. We need new x and y coordinate lists with
             # one extra element, since the cumsum adds a zero at the start.
 
             interpolate_x = np.linspace(self.x_min, self.x_max, self.x_res + 1)
@@ -2549,9 +2550,8 @@ class CumulativeDensityFunction:
             The mapped points.
         """
         if self._y_cdf is not None:
-            print(f"points: {points.shape}")
-            x = points[:,0]
-            y = points[:,1]
+            x = points[:, 0]
+            y = points[:, 1]
 
             # map the y coordinate first.
             y_out = self._y_cdf(y)
@@ -2600,15 +2600,14 @@ class CumulativeDensityFunction:
             The mapped points.
         """
         if self._y_icdf is not None:
-            print(f"points: {points.shape}")
-            x = points[:,0]
-            y = points[:,1]
+            x = points[:, 0]
+            y = points[:, 1]
 
             # map the y coordinate first.
             y_out = self._y_icdf(y)
 
             # select which x quantile curve to use.
-            x_curve = (y_out - self.y_min) * self.y_res / (self.y_max - self.y_min)
+            x_curve = y_out * (self.y_res - 1)
             x_curve = np.floor(x_curve).astype("int")
 
             # map the x coordinate.

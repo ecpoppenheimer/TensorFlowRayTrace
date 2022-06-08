@@ -286,7 +286,7 @@ def raw_mesh_parametrization_tools(mesh, top_parent):
 
 # -----------------------------------------------------------------------------------------
 
-def mesh_parametrization_tools(mesh, top_parent):
+def mesh_parametrization_tools(mesh, top_parent, active_vertices=None):
     """
     Determines which of a face's vertices that face is allowed to update, in a way that
     tries to minimize competition between adjacent faces.
@@ -296,8 +296,14 @@ def mesh_parametrization_tools(mesh, top_parent):
     mesh : pyvista mesh
         The mesh that is being used to parametrize the surface.
     top_parent : int
-        The index of the vertex to base the parametrization around.  Typically found
-        via get_closest_point()
+        The index of the vertex to base the parametrization around.  Typically
+        found via get_closest_point()
+    active_vertices : 1D iterable of ints, optional
+        The vertices that will possess parameters.  These will be used to
+        cut down the accumulator to the shape the parameters will actually have,
+        for boundaries that have a reduced number of parameters.  Defaults to
+        None, in which case the accumulator is sized to the total number
+        of vertices in the mesh.
         
     Returns
     -------
@@ -313,11 +319,16 @@ def mesh_parametrization_tools(mesh, top_parent):
     """
     face_movable_vertices, vertex_ancestors, vertex_parents, missed_vertices = \
         raw_mesh_parametrization_tools(mesh, top_parent)
-    
-    return (
-        movable_to_updatable(mesh, face_movable_vertices),
-        connections_to_array(vertex_ancestors)
-    )
+
+    vertex_update_map = movable_to_updatable(mesh, face_movable_vertices)
+    accumulator = connections_to_array(vertex_ancestors)
+
+    if active_vertices is not None:
+        kept_vertices = [i for i in range(accumulator.shape[0])
+                         if i in active_vertices]
+        accumulator = accumulator[:, kept_vertices][kept_vertices, :]
+
+    return vertex_update_map, accumulator
 
 # =========================================================================================
 
@@ -331,7 +342,7 @@ def gaussian_weights(sigma, count):
 
 # -----------------------------------------------------------------------------------------
 
-def mesh_smoothing_tool(mesh, weights):
+def mesh_smoothing_tool(mesh, weights, active_vertices=None):
     """
     Tool for smoothing a mesh (that works on the mesh's parameters).
     
@@ -354,6 +365,13 @@ def mesh_smoothing_tool(mesh, weights):
         keep x/N of its magnitude, y/N of the magnitude will be distributed evenly across
         all neighbors, and z/N value will be distributed evenly across all neighbors' 
         neighbors.
+
+    active_vertices : 1D iterable of ints, optional
+        The vertices that will possess parameters.  These will be used to
+        cut down the accumulator to the shape the parameters will actually have,
+        for boundaries that have a reduced number of parameters.  Defaults to
+        None, in which case the accumulator is sized to the total number
+        of vertices in the mesh.
     
     Returns
     -------
@@ -394,6 +412,11 @@ def mesh_smoothing_tool(mesh, weights):
             neighbors = nth_neighbors[point][neighbor_order]
             weight = weights[neighbor_order] / len(neighbors)
             smoother[point, list(neighbors)] = weight
+
+    if active_vertices is not None:
+        kept_vertices = [i for i in range(smoother.shape[0])
+                         if i in active_vertices]
+        smoother = smoother[:, kept_vertices][kept_vertices, :]
         
     return smoother
 

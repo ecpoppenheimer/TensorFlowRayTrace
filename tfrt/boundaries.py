@@ -1129,8 +1129,10 @@ class MasterSlaveParametricTriangleBoundary(ParametricTriangleBoundary):
 
         Parameters
         ----------
-        filter_masters : function
-            This must be a function that determines whether any given vertex is a master or
+        filter_masters : function or array of indices
+            Determines which indices are considered as master indices, that will
+            be given a parameter.  This can be either a callable, in which case it
+            must be a function that determines whether any given vertex is a master or
             slave.  It's calling format must be:
 
             Parameters
@@ -1143,6 +1145,9 @@ class MasterSlaveParametricTriangleBoundary(ParametricTriangleBoundary):
             A 1D boolean array whose length is equal to the size of the first dimension of
             vertices and contains a list of which vertices (indices) are considered to be
             masters.
+
+            Or filter masters may be a 1D iterable of indices of vertices to consider
+            masters (i.e. the output from the above defined function)
 
         attach_slaves : function
             This function determines which slaves should be attached to a given master.
@@ -1171,7 +1176,10 @@ class MasterSlaveParametricTriangleBoundary(ParametricTriangleBoundary):
         # there are vertices.
         # master index is a dictionary that maps those indices down to the list of
         # masters alone.
-        masters = filter_masters(self._vertices)
+        if callable(filter_masters):
+            masters = filter_masters(self._vertices)
+        else:
+            masters = filter_masters
         master_index = {masters[i]: i for i in range(len(masters))}
         unclaimed_slaves = set(range(self._vertices.shape[0])) - set(masters)
 

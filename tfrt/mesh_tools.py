@@ -368,9 +368,9 @@ def mesh_smoothing_tool(mesh, weights, active_vertices=None):
 
     active_vertices : 1D iterable of ints, optional
         The vertices that will possess parameters.  These will be used to
-        cut down the accumulator to the shape the parameters will actually have,
+        cut down the smoother to the shape the parameters will actually have,
         for boundaries that have a reduced number of parameters.  Defaults to
-        None, in which case the accumulator is sized to the total number
+        None, in which case the smoother is sized to the total number
         of vertices in the mesh.
     
     Returns

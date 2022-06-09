@@ -1021,7 +1021,8 @@ class ParametricTriangleBoundary(TriangleBoundaryBase):
         # do what needs to be done to flip the norm of the surface around
         if flip_norm:
             zero_points = self._flip_norm(zero_points)
-            vertex_update_map = np.take(vertex_update_map, [2, 1, 0], axis=1)
+            if vertex_update_map is not None:
+                vertex_update_map = np.take(vertex_update_map, [2, 1, 0], axis=1)
         self._zero_points = tf.cast(zero_points.points, tf.float64)
         self.vertex_update_map = vertex_update_map
         

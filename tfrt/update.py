@@ -41,13 +41,14 @@ class RecursivelyUpdatable(ABC):
     
     def __init__(self, update_handles=None, recursively_update=True, frozen=False, **kwargs):
         self.recursively_update = recursively_update
-        self.frozen = frozen
+        self.frozen = False
         if update_handles is None:
             self.update_handles = self._generate_update_handles()
         else:
             self.update_handles = update_handles
         self.post_update_handles = []
         self.update()
+        self.frozen = frozen
         
     def update(self):
         if not self.frozen:

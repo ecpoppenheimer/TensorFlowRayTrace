@@ -1125,7 +1125,7 @@ class MasterSlaveParametricTriangleBoundary(ParametricTriangleBoundary):
     be specified: filter_masters and attach_slaves.
     """
 
-    def __init__(self, filter_masters, attach_slaves, *args, **kwargs):
+    def __init__(self, filter_masters, attach_slaves, *args, initial_parameters=0.0, **kwargs):
         """
 
         Parameters
@@ -1202,8 +1202,15 @@ class MasterSlaveParametricTriangleBoundary(ParametricTriangleBoundary):
         ])
 
         # Overwrite the old value of parameters
+        initial_parameters = tf.cast(
+            tf.broadcast_to(
+                initial_parameters,
+                (len(masters),)
+            ),
+            tf.float64
+        )
         self.parameters = tf.Variable(
-            tf.gather(self.parameters, masters),
+            initial_parameters,
             dtype=tf.float64
         )
 

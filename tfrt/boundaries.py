@@ -394,15 +394,11 @@ class BoundaryBase(RecursivelyUpdatable):
     """
     
     def __init__(self, name=None, material_dict={}, **kwargs):
-        self._name = name
+        self.name = name
         self._fields = {} 
         self.material_dict = material_dict
         super().__init__(**kwargs)
         self.update_materials()
-        
-    @property
-    def name(self):
-        return self._name
     
     @property
     @abstractmethod
@@ -1034,7 +1030,7 @@ class ParametricTriangleBoundary(TriangleBoundaryBase):
         
         self.vector_generator = vector_generator
         self.auto_update_mesh = auto_update_mesh
-        self.reparametrize(self._zero_points)
+        self.reparametrize()
         
         # set up the parameters
         if parameters is None:
@@ -1082,7 +1078,7 @@ class ParametricTriangleBoundary(TriangleBoundaryBase):
     def _update_internal(zero, vectors, parameter):
         return zero + tf.reshape(parameter, (-1, 1)) * vectors
         
-    def reparametrize(self, zero_points):
+    def reparametrize(self):
         self._vectors = self.vector_generator.generate(self._zero_points)
 
     @property

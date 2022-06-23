@@ -1404,14 +1404,14 @@ class OpticalEngine:
         
     @optical_system.setter
     def optical_system(self, val):
-        if val.dimension != self.dimension:
-            raise ValueError(
-                f"OpticalEngine: attempted to set an optical system with "
-                f"dimension {val.dimension}, but this engine is set to dimension "
-                f"{self.dimension}"
-            )
-        else:
-            self._optical_system = val
+        if val is not None:
+            if val.dimension != self.dimension:
+                raise ValueError(
+                    f"OpticalEngine: attempted to set an optical system with "
+                    f"dimension {val.dimension}, but this engine is set to dimension "
+                    f"{self.dimension}"
+                )
+        self._optical_system = val
             
     def validate_system(self):
         """

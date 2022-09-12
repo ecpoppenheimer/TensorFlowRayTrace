@@ -6,7 +6,6 @@ used by a user as well.
 from math import pi as PI
 
 import tensorflow as tf
-import tfquaternion as tfq
 
 # =====================================================================================
 

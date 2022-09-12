@@ -61,7 +61,6 @@ import numpy as np
 import tfquaternion as tfq
 
 from tfrt.update import RecursivelyUpdatable
-import tfrt.geometry as geometry
 
 PI = math.pi
 COUNTER = itertools.count(0)

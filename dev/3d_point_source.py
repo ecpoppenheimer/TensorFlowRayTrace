@@ -9,8 +9,6 @@ import tfquaternion as tfq
 import tfrt.sources as sources
 import tfrt.distributions as distributions
 import tfrt.drawing as drawing
-from tfrt.spectrumRGB import rgb
-import tfrt.geometry as geometry
 
 angular_size = itertools.cycle(np.array([PI/2, PI/3, PI/4, PI/8, PI/12, PI/48], dtype=np.float64))
 sample_count = itertools.cycle([100, 500, 2500])
